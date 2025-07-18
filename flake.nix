@@ -27,9 +27,19 @@
         craneLib = crane.mkLib pkgs;
         src = craneLib.cleanCargoSource ./.;
 
+        runtimeDeps = with pkgs; [
+          libclang
+          parted
+        ];
+
         commonArgs = {
           inherit src;
           strictDeps = true;
+          buildInputs = runtimeDeps;
+
+          nativeBuildInputs = with pkgs; [
+            pkg-config
+          ];
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -72,6 +82,8 @@
 
         devShells.default = craneLib.devShell {
           checks = self.checks.${system};
+          LD_LIBRARY_PATH = lib.makeLibraryPath runtimeDeps;
+          CPATH = "${pkgs.parted.dev}/include:${pkgs.libcxx.dev}/include/c++/v1:${pkgs.musl.dev}/include";
         };
       }
     );

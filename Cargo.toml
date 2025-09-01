@@ -15,3 +15,4 @@ byte-unit = "5.1.6"
 ouroboros = "0.18.5"
 tokio = { version = "1.46.1", features = ["sync"] }
 tokio-stream = { version = "0.1.17", default-features = false }
+proc-mounts = "0.3.0"

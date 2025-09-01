@@ -42,8 +42,7 @@ fn update_disks(update: Update<Message>, state: &mut State) -> (Task<Message>, b
                 let selected = state.table.selected().unwrap();
                 state.tx_actions.send(Action::SetDisk(selected)).unwrap();
                 state.mode = Mode::Partitions(selected);
-                state.table.select(Some(0));
-                true
+                false
             }
             _ => false,
         }

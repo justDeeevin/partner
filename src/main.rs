@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
 };
@@ -7,6 +8,7 @@ use crate::ext::{DeviceInfo, PartitionInfo};
 use byte_unit::Byte;
 use color_eyre::{Result, eyre::Context};
 use libparted::{Device, Disk};
+use proc_mounts::{MountInfo, MountList};
 use ratatui::widgets::TableState;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -44,6 +46,12 @@ fn main() -> Result<()> {
         tx_actions,
         devices: Vec::new(),
         partitions: Vec::new(),
+        mounts: MountList::new()
+            .context("Failed to get mounts")?
+            .0
+            .into_iter()
+            .map(|m| (m.source.clone(), m))
+            .collect(),
     };
 
     ratatui_elm::App::new_with(state, logic::update, ui::view)
@@ -70,6 +78,7 @@ struct State {
     pub tx_actions: Sender<Action>,
     pub devices: Vec<DeviceInfo>,
     pub partitions: Vec<PartitionInfo>,
+    pub mounts: HashMap<PathBuf, MountInfo>,
 }
 
 #[derive(Debug)]
@@ -129,9 +138,11 @@ fn worker(
                             tx_messages
                                 .send(Message::Partitions(
                                     d.parts()
+                                        .skip(1)
+                                        .take(d.parts().count() - 2)
                                         .map(|p| PartitionInfo {
-                                            path: p.get_path().map(ToOwned::to_owned),
-                                            fs_type: p.fs_type_name().map(ToOwned::to_owned),
+                                            path: p.get_path().map(Into::into),
+                                            fs_type: p.fs_type_name().map(Into::into),
                                             length: Byte::from_i64(p.geom_length() * sector_size)
                                                 .unwrap(),
                                         })

@@ -9,8 +9,8 @@ use ratatui::{
 pub fn view(state: &mut State, frame: &mut ratatui::Frame) {
     match &state.mode {
         Mode::Disks => view_disks(frame, state),
-        Mode::Partitions { index, temp_label } => {
-            view_partitions(frame, state, *index, temp_label.clone())
+        Mode::Partitions { index, temp_name } => {
+            view_partitions(frame, state, *index, temp_name.clone())
         }
     }
 }
@@ -47,7 +47,7 @@ fn view_partitions(
     frame: &mut ratatui::Frame,
     state: &mut State,
     index: usize,
-    temp_label: Option<String>,
+    temp_name: Option<String>,
 ) {
     const N_COLS: usize = 5;
 
@@ -58,10 +58,10 @@ fn view_partitions(
         "Path",
         "Filesystem",
         "Size",
-        if state.mode.is_editing_label() {
-            "Label (editing)"
+        if state.mode.is_editing_name() {
+            "Name (editing)"
         } else {
-            "Label"
+            "Name"
         },
         "Mount point",
     ])
@@ -69,12 +69,12 @@ fn view_partitions(
 
     let rows = state.partitions.iter().enumerate().map(|(i, p)| {
         let mount = p.path.as_ref().and_then(|p| state.mounts.get(p.as_ref()));
-        let label = if i == state.table.selected().unwrap() {
-            temp_label
+        let name = if i == state.table.selected().unwrap() {
+            temp_name
                 .clone()
-                .unwrap_or_else(|| p.label.as_ref().map(|p| p.to_string()).unwrap_or_default())
+                .unwrap_or_else(|| p.name.as_ref().map(|p| p.to_string()).unwrap_or_default())
         } else {
-            p.label.as_ref().map(|p| p.to_string()).unwrap_or_default()
+            p.name.as_ref().map(|p| p.to_string()).unwrap_or_default()
         };
         Row::new::<[String; N_COLS]>([
             p.path
@@ -93,7 +93,7 @@ fn view_partitions(
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| if p.path.is_some() { "Unknown" } else { "" }.into()),
             format!("{:#}", p.length),
-            label,
+            name,
             mount
                 .map(|m| m.dest.display().to_string())
                 .unwrap_or_default(),
@@ -121,15 +121,15 @@ fn view_partitions(
     let [bottom_left, bottom_right] =
         Layout::horizontal([Constraint::Ratio(1, 2); 2]).areas(bottom);
 
-    let legend = if state.mode.is_editing_label() {
-        "Type to edit label | Esc: Abandon changes".to_string()
+    let legend = if state.mode.is_editing_name() {
+        "Type to edit name | Esc: Abandon changes".to_string()
     } else {
         let mut out =
             "q: Quit | Esc: Back | Up/Down: Change Selection | Ctrl+z: Undo change".to_string();
         if let Some(selected) = state.table.selected()
             && state.partitions[selected].path.is_some()
         {
-            out += " | l: Edit label | L: Replace label";
+            out += " | n: Edit name | N: Replace name";
         }
         out
     };

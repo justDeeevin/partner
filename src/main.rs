@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    panic,
     path::PathBuf,
     sync::{
         Arc,
@@ -31,7 +32,13 @@ fn main() -> Result<()> {
 
     let (rx_mode, worker) = worker(rx_actions, tx_messages, cli.device);
 
-    std::thread::spawn(worker);
+    let orig_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        orig_hook(panic_info);
+        std::process::exit(1);
+    }));
+
+    let worker = std::thread::spawn(worker);
 
     let mode = rx_mode
         .blocking_recv()
@@ -61,6 +68,9 @@ fn main() -> Result<()> {
     ratatui_elm::App::new_with(state, logic::update, ui::view)
         .subscription(UnboundedReceiverStream::new(rx_messages))
         .run()?;
+
+    worker.join().unwrap();
+
     Ok(())
 }
 
@@ -68,10 +78,10 @@ fn main() -> Result<()> {
 enum Action {
     GetDevices,
     SetDisk(usize),
-    ChangeLabel {
+    ChangeName {
         partition: usize,
-        previous_label: Option<Arc<str>>,
-        new_label: Arc<str>,
+        previous_name: Option<Arc<str>>,
+        new_name: Arc<str>,
     },
     Undo,
     Commit,
@@ -112,7 +122,7 @@ enum Mode {
     Disks,
     Partitions {
         index: usize,
-        temp_label: Option<String>,
+        temp_name: Option<String>,
     },
 }
 
@@ -120,15 +130,15 @@ impl Mode {
     pub const fn partitions(index: usize) -> Self {
         Self::Partitions {
             index,
-            temp_label: None,
+            temp_name: None,
         }
     }
 
-    pub fn is_editing_label(&self) -> bool {
+    pub fn is_editing_name(&self) -> bool {
         matches!(
             self,
             Mode::Partitions {
-                temp_label: Some(_),
+                temp_name: Some(_),
                 ..
             }
         )
@@ -201,7 +211,7 @@ fn worker(
                                             fs_type: p.fs_type_name().map(Into::into),
                                             length: Byte::from_i64(p.geom_length() * sector_size)
                                                 .unwrap(),
-                                            label: p.name().map(Into::into),
+                                            name: p.name().map(Into::into),
                                         })
                                         .collect(),
                                 ))
@@ -213,17 +223,17 @@ fn worker(
                         }
                     }
                 }
-                Action::ChangeLabel {
+                Action::ChangeName {
                     partition: index,
-                    new_label,
-                    previous_label: _,
+                    new_name,
+                    previous_name: _,
                 } => {
                     match disk
                         .as_mut()
                         .unwrap()
                         .get_partition(index as u32)
                         .unwrap()
-                        .set_name(&new_label)
+                        .set_name(&new_name)
                     {
                         Ok(()) => {}
                         Err(e) => {
@@ -238,17 +248,17 @@ fn worker(
                     match action {
                         Action::GetDevices | Action::SetDisk(_) | Action::Undo | Action::Commit => {
                         }
-                        Action::ChangeLabel {
+                        Action::ChangeName {
                             partition,
-                            new_label: _,
-                            previous_label,
+                            new_name: _,
+                            previous_name,
                         } => {
                             match disk
                                 .as_mut()
                                 .unwrap()
                                 .get_partition(partition as u32)
                                 .unwrap()
-                                .set_name(&previous_label.unwrap_or_default())
+                                .set_name(&previous_name.unwrap_or_default())
                             {
                                 Ok(()) => {}
                                 Err(e) => {

@@ -60,20 +60,20 @@ fn update_partitions(
 ) -> (Task<Message>, bool) {
     let redraw = if let Update::Terminal(Event::Key(key)) = update {
         if let Mode::Partitions {
-            temp_label: Some(temp_label),
+            temp_name: Some(temp_name),
             ..
         } = &mut state.mode
             && let KeyCode::Char(c) = key.code
         {
-            temp_label.push(c);
+            temp_name.push(c);
             return (Task::None, true);
         }
         match key.code {
             KeyCode::Esc => {
-                if let Mode::Partitions { temp_label, .. } = &mut state.mode
-                    && temp_label.is_some()
+                if let Mode::Partitions { temp_name, .. } = &mut state.mode
+                    && temp_name.is_some()
                 {
-                    *temp_label = None;
+                    *temp_name = None;
                 } else {
                     state.table.select(Some(index));
                     state.mode = Mode::Disks;
@@ -82,36 +82,36 @@ fn update_partitions(
                 true
             }
             KeyCode::Char('q') => return (Task::Quit, false),
-            KeyCode::Up if !state.mode.is_editing_label() => {
+            KeyCode::Up if !state.mode.is_editing_name() => {
                 state.table.scroll_up_by(1);
                 true
             }
-            KeyCode::Down if !state.mode.is_editing_label() => {
+            KeyCode::Down if !state.mode.is_editing_name() => {
                 state.table.scroll_down_by(1);
                 true
             }
             KeyCode::Backspace => {
                 if let Mode::Partitions {
-                    temp_label: Some(temp_label),
+                    temp_name: Some(temp_name),
                     ..
                 } = &mut state.mode
                 {
-                    temp_label.pop();
+                    temp_name.pop();
                     true
                 } else {
                     false
                 }
             }
-            KeyCode::Char('l') | KeyCode::Char('L') => {
-                if let Mode::Partitions { temp_label, .. } = &mut state.mode
-                    && temp_label.is_none()
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                if let Mode::Partitions { temp_name, .. } = &mut state.mode
+                    && temp_name.is_none()
                     && state.partitions[state.table.selected().unwrap()]
                         .path
                         .is_some()
                 {
-                    *temp_label = if let KeyCode::Char('l') = key.code {
+                    *temp_name = if let KeyCode::Char('n') = key.code {
                         state.partitions[state.table.selected().unwrap()]
-                            .label
+                            .name
                             .as_ref()
                             .map(|s| s.to_string())
                     } else {
@@ -123,18 +123,18 @@ fn update_partitions(
                 }
             }
             KeyCode::Enter => {
-                if let Mode::Partitions { temp_label, .. } = &mut state.mode
-                    && temp_label.is_some()
+                if let Mode::Partitions { temp_name, .. } = &mut state.mode
+                    && temp_name.is_some()
                 {
                     let selected = state.table.selected().unwrap();
-                    let new_label = temp_label.clone().unwrap();
-                    *temp_label = None;
-                    state.action(Action::ChangeLabel {
+                    let new_name = temp_name.clone().unwrap();
+                    *temp_name = None;
+                    state.action(Action::ChangeName {
                         partition: selected,
-                        new_label: new_label.clone().into(),
-                        previous_label: state.partitions[selected].label.clone(),
+                        new_name: new_name.clone().into(),
+                        previous_name: state.partitions[selected].name.clone(),
                     });
-                    state.partitions[selected].label = Some(new_label.into());
+                    state.partitions[selected].name = Some(new_name.into());
                     true
                 } else {
                     false

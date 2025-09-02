@@ -74,6 +74,7 @@ enum Action {
         new_label: Arc<str>,
     },
     Undo,
+    Commit,
 }
 
 enum Message {
@@ -99,6 +100,7 @@ impl State {
             Action::Undo => {
                 self.n_changes -= 1;
             }
+            Action::Commit => self.n_changes = 0,
             _ => self.n_changes += 1,
         }
         self.tx_actions.send(action).unwrap();
@@ -234,7 +236,8 @@ fn worker(
                         continue;
                     };
                     match action {
-                        Action::GetDevices | Action::SetDisk(_) | Action::Undo => {}
+                        Action::GetDevices | Action::SetDisk(_) | Action::Undo | Action::Commit => {
+                        }
                         Action::ChangeLabel {
                             partition,
                             new_label: _,
@@ -254,6 +257,10 @@ fn worker(
                             }
                         }
                     }
+                }
+                Action::Commit => {
+                    changes.clear();
+                    disk.as_mut().unwrap().commit().unwrap();
                 }
             }
         }

@@ -146,6 +146,12 @@ fn update_partitions(
                 state.action(Action::Undo);
                 true
             }
+            KeyCode::Char('s')
+                if key.modifiers.contains(KeyModifiers::CONTROL) && state.n_changes > 0 =>
+            {
+                state.action(Action::Commit);
+                true
+            }
             _ => false,
         }
     } else {

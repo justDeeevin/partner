@@ -55,6 +55,7 @@ fn main() -> Result<()> {
             .into_iter()
             .map(|m| (m.source.clone(), m))
             .collect(),
+        n_changes: 0,
     };
 
     ratatui_elm::App::new_with(state, logic::update, ui::view)
@@ -63,10 +64,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone)]
 enum Action {
     GetDevices,
     SetDisk(usize),
-    ChangeLabel(usize, Arc<str>),
+    ChangeLabel {
+        partition: usize,
+        previous_label: Option<Arc<str>>,
+        new_label: Arc<str>,
+    },
+    Undo,
 }
 
 enum Message {
@@ -82,6 +89,20 @@ struct State {
     pub devices: Vec<DeviceInfo>,
     pub partitions: Vec<PartitionInfo>,
     pub mounts: HashMap<PathBuf, MountInfo>,
+    pub n_changes: usize,
+}
+
+impl State {
+    pub fn action(&mut self, action: Action) {
+        match action {
+            Action::GetDevices | Action::SetDisk(_) => {}
+            Action::Undo => {
+                self.n_changes -= 1;
+            }
+            _ => self.n_changes += 1,
+        }
+        self.tx_actions.send(action).unwrap();
+    }
 }
 
 #[derive(Debug)]
@@ -125,6 +146,8 @@ fn worker(
     let worker = move || {
         let mut devices = Device::devices(true).collect::<Vec<_>>();
 
+        let mut changes = Vec::new();
+
         if let Some(device) = specified {
             let index = match devices.iter().position(|d| d.path() == device) {
                 Some(i) => i,
@@ -146,6 +169,12 @@ fn worker(
 
         let mut disk = None;
         while let Ok(action) = rx_actions.recv() {
+            if !matches!(
+                action,
+                Action::Undo | Action::GetDevices | Action::SetDisk(_)
+            ) {
+                changes.push(action.clone());
+            }
             match action {
                 Action::GetDevices => {
                     disk = None;
@@ -182,7 +211,11 @@ fn worker(
                         }
                     }
                 }
-                Action::ChangeLabel(index, new_label) => {
+                Action::ChangeLabel {
+                    partition: index,
+                    new_label,
+                    previous_label: _,
+                } => {
                     match disk
                         .as_mut()
                         .unwrap()
@@ -193,6 +226,32 @@ fn worker(
                         Ok(()) => {}
                         Err(e) => {
                             let _ = tx_messages.send(Message::Error(e.into()));
+                        }
+                    }
+                }
+                Action::Undo => {
+                    let Some(action) = changes.pop() else {
+                        continue;
+                    };
+                    match action {
+                        Action::GetDevices | Action::SetDisk(_) | Action::Undo => {}
+                        Action::ChangeLabel {
+                            partition,
+                            new_label: _,
+                            previous_label,
+                        } => {
+                            match disk
+                                .as_mut()
+                                .unwrap()
+                                .get_partition(partition as u32)
+                                .unwrap()
+                                .set_name(&previous_label.unwrap_or_default())
+                            {
+                                Ok(()) => {}
+                                Err(e) => {
+                                    let _ = tx_messages.send(Message::Error(e.into()));
+                                }
+                            }
                         }
                     }
                 }

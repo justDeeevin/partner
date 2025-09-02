@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode};
+use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui_elm::{Task, Update};
 
 use crate::{Action, Message, Mode, State};
@@ -40,7 +40,7 @@ fn update_disks(update: Update<Message>, state: &mut State) -> (Task<Message>, b
             }
             KeyCode::Enter => {
                 let selected = state.table.selected().unwrap();
-                state.tx_actions.send(Action::SetDisk(selected)).unwrap();
+                state.action(Action::SetDisk(selected));
                 state.mode = Mode::partitions(selected);
                 false
             }
@@ -127,19 +127,24 @@ fn update_partitions(
                     && temp_label.is_some()
                 {
                     let selected = state.table.selected().unwrap();
-                    state
-                        .tx_actions
-                        .send(Action::ChangeLabel(
-                            selected,
-                            temp_label.clone().unwrap().into(),
-                        ))
-                        .unwrap();
-                    state.partitions[selected].label = temp_label.clone().map(Into::into);
+                    let new_label = temp_label.clone().unwrap();
                     *temp_label = None;
+                    state.action(Action::ChangeLabel {
+                        partition: selected,
+                        new_label: new_label.clone().into(),
+                        previous_label: state.partitions[selected].label.clone(),
+                    });
+                    state.partitions[selected].label = Some(new_label.into());
                     true
                 } else {
                     false
                 }
+            }
+            KeyCode::Char('z')
+                if key.modifiers.contains(KeyModifiers::CONTROL) && state.n_changes > 0 =>
+            {
+                state.action(Action::Undo);
+                true
             }
             _ => false,
         }

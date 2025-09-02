@@ -1,6 +1,6 @@
 use crate::{Mode, State};
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Alignment, Constraint, Layout},
     style::{Style, Stylize},
     text::Text,
     widgets::{Block, Borders, Row, Table},
@@ -117,10 +117,15 @@ fn view_partitions(
         .row_highlight_style(Style::default().reversed());
 
     frame.render_stateful_widget(table, top, &mut state.table);
+
+    let [bottom_left, bottom_right] =
+        Layout::horizontal([Constraint::Ratio(1, 2); 2]).areas(bottom);
+
     let legend = if state.mode.is_editing_label() {
         "Type to edit label | Esc: Abandon changes".to_string()
     } else {
-        let mut out = "Esc: Back | Up/Down: Change Selection".to_string();
+        let mut out =
+            "q: Quit | Esc: Back | Up/Down: Change Selection | Ctrl+z: Undo change".to_string();
         if let Some(selected) = state.table.selected()
             && state.partitions[selected].path.is_some()
         {
@@ -128,5 +133,9 @@ fn view_partitions(
         }
         out
     };
-    frame.render_widget(Text::raw(legend), bottom);
+    frame.render_widget(Text::raw(legend), bottom_left);
+    frame.render_widget(
+        Text::raw(format!("{} pending changes", state.n_changes)).alignment(Alignment::Right),
+        bottom_right,
+    );
 }

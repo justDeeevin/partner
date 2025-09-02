@@ -7,9 +7,11 @@ use ratatui::{
 };
 
 pub fn view(state: &mut State, frame: &mut ratatui::Frame) {
-    match state.mode {
+    match &state.mode {
         Mode::Disks => view_disks(frame, state),
-        Mode::Partitions(i) => view_partitions(frame, state, i),
+        Mode::Partitions { index, temp_label } => {
+            view_partitions(frame, state, *index, temp_label.clone())
+        }
     }
 }
 
@@ -41,16 +43,40 @@ fn view_disks(frame: &mut ratatui::Frame, state: &mut State) {
     );
 }
 
-fn view_partitions(frame: &mut ratatui::Frame, state: &mut State, index: usize) {
+fn view_partitions(
+    frame: &mut ratatui::Frame,
+    state: &mut State,
+    index: usize,
+    temp_label: Option<String>,
+) {
+    const N_COLS: usize = 5;
+
     let [top, bottom] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
 
-    let header =
-        Row::new(["Path", "Filesystem", "Size", "Mount point"]).style(Style::default().bold());
+    let header = Row::new::<[&str; N_COLS]>([
+        "Path",
+        "Filesystem",
+        "Size",
+        if state.mode.is_editing_label() {
+            "Label (editing)"
+        } else {
+            "Label"
+        },
+        "Mount point",
+    ])
+    .style(Style::default().bold());
 
-    let rows = state.partitions.iter().map(|p| {
+    let rows = state.partitions.iter().enumerate().map(|(i, p)| {
         let mount = p.path.as_ref().and_then(|p| state.mounts.get(p.as_ref()));
-        Row::new([
+        let label = if i == state.table.selected().unwrap() {
+            temp_label
+                .clone()
+                .unwrap_or_else(|| p.label.as_ref().map(|p| p.to_string()).unwrap_or_default())
+        } else {
+            p.label.as_ref().map(|p| p.to_string()).unwrap_or_default()
+        };
+        Row::new::<[String; N_COLS]>([
             p.path
                 .as_ref()
                 .map(|p| {
@@ -67,6 +93,7 @@ fn view_partitions(frame: &mut ratatui::Frame, state: &mut State, index: usize) 
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| if p.path.is_some() { "Unknown" } else { "" }.into()),
             format!("{:#}", p.length),
+            label,
             mount
                 .map(|m| m.dest.display().to_string())
                 .unwrap_or_default(),
@@ -84,11 +111,22 @@ fn view_partitions(frame: &mut ratatui::Frame, state: &mut State, index: usize) 
         ))
         .borders(Borders::ALL);
 
-    let table = Table::new(rows, [Constraint::Ratio(1, 4); 4])
+    let table = Table::new(rows, [Constraint::Ratio(1, N_COLS as u32); N_COLS])
         .block(block)
         .header(header)
         .row_highlight_style(Style::default().reversed());
 
     frame.render_stateful_widget(table, top, &mut state.table);
-    frame.render_widget(Text::raw("Esc: Back | Up/Down: Change Selection"), bottom);
+    let legend = if state.mode.is_editing_label() {
+        "Type to edit label | Esc: Abandon changes".to_string()
+    } else {
+        let mut out = "Esc: Back | Up/Down: Change Selection".to_string();
+        if let Some(selected) = state.table.selected()
+            && state.partitions[selected].path.is_some()
+        {
+            out += " | l: Edit label | L: Replace label";
+        }
+        out
+    };
+    frame.render_widget(Text::raw(legend), bottom);
 }

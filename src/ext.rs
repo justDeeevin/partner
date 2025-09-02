@@ -23,4 +23,5 @@ pub struct PartitionInfo {
     pub path: Option<Arc<Path>>,
     pub fs_type: Option<Arc<str>>,
     pub length: Byte,
+    pub label: Option<Arc<str>>,
 }

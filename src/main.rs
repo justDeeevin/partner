@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        Arc,
+        mpsc::{Receiver, Sender},
+    },
 };
 
 use crate::ext::{DeviceInfo, PartitionInfo};
@@ -36,8 +39,8 @@ fn main() -> Result<()> {
         .context("Failed to open specified device")?;
 
     tx_actions.send(Action::GetDevices).unwrap();
-    if let Mode::Partitions(i) = mode {
-        tx_actions.send(Action::SetDisk(i)).unwrap();
+    if let Mode::Partitions { index, .. } = mode {
+        tx_actions.send(Action::SetDisk(index)).unwrap();
     }
 
     let state = State {
@@ -63,7 +66,7 @@ fn main() -> Result<()> {
 enum Action {
     GetDevices,
     SetDisk(usize),
-    DeleteAll,
+    ChangeLabel(usize, Arc<str>),
 }
 
 enum Message {
@@ -84,7 +87,29 @@ struct State {
 #[derive(Debug)]
 enum Mode {
     Disks,
-    Partitions(usize),
+    Partitions {
+        index: usize,
+        temp_label: Option<String>,
+    },
+}
+
+impl Mode {
+    pub const fn partitions(index: usize) -> Self {
+        Self::Partitions {
+            index,
+            temp_label: None,
+        }
+    }
+
+    pub fn is_editing_label(&self) -> bool {
+        matches!(
+            self,
+            Mode::Partitions {
+                temp_label: Some(_),
+                ..
+            }
+        )
+    }
 }
 
 fn worker(
@@ -114,7 +139,7 @@ fn worker(
                     devices.len() - 1
                 }
             };
-            tx_mode.send(Ok(Mode::Partitions(index))).unwrap();
+            tx_mode.send(Ok(Mode::partitions(index))).unwrap();
         } else {
             tx_mode.send(Ok(Mode::Disks)).unwrap();
         }
@@ -145,6 +170,7 @@ fn worker(
                                             fs_type: p.fs_type_name().map(Into::into),
                                             length: Byte::from_i64(p.geom_length() * sector_size)
                                                 .unwrap(),
+                                            label: p.name().map(Into::into),
                                         })
                                         .collect(),
                                 ))
@@ -156,9 +182,18 @@ fn worker(
                         }
                     }
                 }
-                Action::DeleteAll => {
-                    if let Err(e) = disk.as_mut().unwrap().delete_all() {
-                        tx_messages.send(Message::Error(e.into())).unwrap();
+                Action::ChangeLabel(index, new_label) => {
+                    match disk
+                        .as_mut()
+                        .unwrap()
+                        .get_partition(index as u32)
+                        .unwrap()
+                        .set_name(&new_label)
+                    {
+                        Ok(()) => {}
+                        Err(e) => {
+                            let _ = tx_messages.send(Message::Error(e.into()));
+                        }
                     }
                 }
             }

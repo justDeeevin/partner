@@ -26,7 +26,7 @@ fn view_devices(state: &mut State, frame: &mut Frame) {
             Row::new::<[String; DEVICES_COLUMNS]>([
                 d.path().display().to_string(),
                 d.model().to_string(),
-                format!("{:#3.10}", d.size()),
+                format!("{:#.10}", d.size()),
             ])
         }),
         [Constraint::Ratio(1, DEVICES_COLUMNS as u32); DEVICES_COLUMNS],

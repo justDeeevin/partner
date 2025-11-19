@@ -8,9 +8,9 @@ pub struct Cli {
     #[arg()]
     /// The path to the device to use
     pub device: Option<PathBuf>,
-    #[arg(long)]
+    #[arg(long, short = 'D')]
     /// Path to log file
-    pub log_file: Option<PathBuf>,
+    pub debug: bool,
 }
 
 pub fn parse() -> Cli {

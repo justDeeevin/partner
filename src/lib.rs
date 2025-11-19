@@ -94,6 +94,10 @@ impl<'a> Device<'a> {
         self.path.as_ref()
     }
 
+    pub fn path_owned(&self) -> Arc<Path> {
+        self.path.clone()
+    }
+
     pub fn size(&self) -> Byte {
         self.size
     }

@@ -1,3 +1,5 @@
+use std::{collections::BTreeMap, path::Path, sync::Arc};
+
 use color_eyre::{
     Result,
     eyre::{Context, eyre},
@@ -20,8 +22,8 @@ fn main() -> Result<()> {
         return Err(eyre!("partner must be run as root"));
     }
 
-    if let Some(path) = &cli.log_file {
-        let file = std::fs::File::create(path).context("failed to create log file")?;
+    if cli.debug {
+        let file = std::fs::File::create("partner.log").context("failed to create log file")?;
         tracing_subscriber::fmt()
             .with_writer(file)
             .with_ansi(false)
@@ -29,28 +31,35 @@ fn main() -> Result<()> {
             .init();
     }
 
-    let mut devices = Device::get_all().context("failed to get devices")?;
+    let devices = Device::get_all()
+        .context("failed to get devices")?
+        .into_iter()
+        .map(|d| (d.path_owned(), d))
+        .collect();
+    let mut state = State {
+        devices,
+        selected_device: None,
+        table: TableState::new().with_selected(Some(0)),
+    };
 
     if let Some(device) = cli.device {
-        devices.push(Device::open(device).context("failed to open device")?);
+        let device = Arc::from(device);
+        if !state.devices.contains_key(&device) {
+            state.devices.insert(
+                device.clone(),
+                Device::open(&device).context("failed to get device")?,
+            );
+        }
+        state.selected_device = Some(device.clone());
     }
 
-    App::new_with(
-        State {
-            devices,
-            selected_device: None,
-            table: TableState::new().with_selected(0),
-        },
-        logic::update,
-        ui::view,
-    )
-    .run()?;
+    App::new_with(state, logic::update, ui::view).run()?;
 
     Ok(())
 }
 
 struct State<'a> {
-    devices: Vec<Device<'a>>,
-    selected_device: Option<usize>,
+    devices: BTreeMap<Arc<Path>, Device<'a>>,
+    selected_device: Option<Arc<Path>>,
     table: TableState,
 }

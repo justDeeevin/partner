@@ -1,8 +1,7 @@
-use std::path::Path;
-
 use super::State;
 use crossterm::event::{Event, KeyCode, KeyEvent};
 use ratatui_elm::{Task, Update};
+use std::path::Path;
 use tracing::debug;
 
 type Message = ();

@@ -1,5 +1,4 @@
-use std::{path::Path, sync::Arc};
-
+use super::State;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -7,8 +6,7 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Row, Table},
 };
-
-use super::State;
+use std::{path::Path, sync::Arc};
 
 pub fn view(state: &mut State, frame: &mut Frame) {
     if let Some(device) = state.selected_device.clone() {

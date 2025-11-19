@@ -1,4 +1,6 @@
-use std::{collections::BTreeMap, path::Path, sync::Arc};
+mod cli;
+mod logic;
+mod ui;
 
 use color_eyre::{
     Result,
@@ -7,11 +9,8 @@ use color_eyre::{
 use partner::Device;
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tracing_subscriber::EnvFilter;
-
-mod cli;
-mod logic;
-mod ui;
 
 fn main() -> Result<()> {
     color_eyre::install()?;

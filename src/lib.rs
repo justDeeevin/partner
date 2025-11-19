@@ -67,18 +67,30 @@ impl<'a> Device<'a> {
         mounts: &HashMap<PathBuf, MountInfo>,
     ) -> std::io::Result<Self> {
         let sector_size = value.sector_size();
-        let disk = libparted::Disk::new(&mut value)?;
-        let partitions = disk.parts().skip(1).collect::<Vec<_>>();
-        let len = partitions.len();
-        let partitions = partitions
-            .into_iter()
-            .take(len - 1)
+        let mut partitions = libparted::Disk::new(&mut value)?
+            .parts()
             .map(|p| {
-                let mount_info = p.get_path().and_then(|p| mounts.get(p));
-                Partition::from_libparted(p, sector_size, mount_info)
+                let mount = p.get_path().and_then(|p| mounts.get(p));
+                Partition::from_libparted(p, sector_size, mount)
             })
-            .collect();
-        drop(disk);
+            .collect::<Vec<_>>();
+        if let [first, second] = partitions.iter().take(2).collect::<Vec<_>>().as_slice()
+            && !first.used
+            && !second.used
+        {
+            partitions.remove(0);
+        }
+        if partitions.len() >= 2
+            && let [second_to_last, last] = partitions
+                .iter()
+                .skip(partitions.len() - 2)
+                .collect::<Vec<_>>()
+                .as_slice()
+            && !second_to_last.used
+            && !last.used
+        {
+            partitions.pop();
+        }
         Ok(Self {
             model: value.model().into(),
             path: value.path().into(),

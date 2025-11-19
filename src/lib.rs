@@ -143,27 +143,6 @@ impl<'a> Device<'a> {
             Bound::Unbounded => self.raw.length() as i64,
         };
 
-        let containing_index = self
-            .partitions_enum()
-            .find(|(_, p)| {
-                !p.used
-                    && p.bounds().contains(bounds.start())
-                    && p.bounds().contains(bounds.end())
-            })
-            .ok_or_else(|| {
-                #[allow(clippy::unwrap_used, reason = "the only situation in which the above returns `None` is when there is at least one index for which this is true")]
-                let index = self
-                    .partitions
-                    .iter()
-                    .position(|p| {
-                        !p.used
-                            && (p.bounds().contains(bounds.start())
-                                || p.bounds().contains(bounds.end()))
-                    })
-                    .unwrap();
-                Error::OverlapsExisting(index)
-            })?.0;
-
         let new_partition = Partition::new(
             name.clone(),
             bounds.clone(),
@@ -172,51 +151,7 @@ impl<'a> Device<'a> {
             self.raw.sector_size(),
         );
 
-        let index = if self.partitions[containing_index].bounds() == &bounds {
-            if self.partitions[containing_index].kind == PartitionKind::Virtual {
-                self.partitions[containing_index] = new_partition;
-            } else {
-                self.partitions[containing_index].kind = PartitionKind::Hidden;
-                self.partitions.insert(containing_index, new_partition);
-            }
-            containing_index
-        } else if self.partitions[containing_index].bounds().start() == bounds.start() {
-            let containing_end = *self.partitions[containing_index].bounds().end();
-            self.partitions[containing_index]
-                .bounds
-                .1
-                .push(*bounds.end()..=containing_end);
-            self.partitions.insert(containing_index, new_partition);
-            containing_index
-        } else if self.partitions[containing_index].bounds().end() == bounds.end() {
-            let containing_start = *self.partitions[containing_index].bounds().start();
-            self.partitions[containing_index]
-                .bounds
-                .1
-                .push(containing_start..=*bounds.start());
-            self.partitions.insert(containing_index, new_partition);
-            containing_index
-        } else {
-            let containing_start = *self.partitions[containing_index].bounds().start();
-            let containing_end = *self.partitions[containing_index].bounds().end();
-            self.partitions[containing_index]
-                .bounds
-                .1
-                .push(containing_start..=*bounds.start());
-            self.partitions.insert(containing_index + 1, new_partition);
-            self.partitions.insert(
-                containing_index + 2,
-                Partition::new(
-                    "".into(),
-                    *bounds.end()..=containing_end,
-                    None,
-                    false,
-                    self.raw.sector_size(),
-                ),
-            );
-
-            containing_index + 1
-        };
+        let index = self.new_partition_inner(new_partition)?;
 
         self.changes.push(Change::NewPartition {
             name,
@@ -226,6 +161,116 @@ impl<'a> Device<'a> {
         });
 
         Ok(())
+    }
+
+    fn new_partition_inner(&mut self, new: Partition) -> Result<usize, Error> {
+        let containing_index = self
+            .partitions_enum()
+            .find(|(_, p)| {
+                !p.used
+                    && p.bounds().contains(new.bounds().start())
+                    && p.bounds().contains(new.bounds().end())
+            })
+            .ok_or_else(|| {
+                #[allow(clippy::unwrap_used, reason = "the only situation in which the above returns `None` is when there is at least one index for which this is true")]
+                let index = self
+                    .partitions
+                    .iter()
+                    .position(|p| {
+                        !p.used
+                            && (p.bounds().contains(new.bounds().start())
+                                || p.bounds().contains(new.bounds().end()))
+                    })
+                    .unwrap();
+                Error::OverlapsExisting(index)
+            })?.0;
+
+        Ok(
+            if self.partitions[containing_index].bounds() == new.bounds() {
+                if self.partitions[containing_index].kind == PartitionKind::Virtual {
+                    self.partitions[containing_index] = new;
+                } else {
+                    self.partitions[containing_index].kind = PartitionKind::Hidden;
+                    self.partitions.insert(containing_index, new);
+                }
+                containing_index
+            } else if self.partitions[containing_index].bounds().start() == new.bounds().start() {
+                let containing_end = *self.partitions[containing_index].bounds().end();
+                self.partitions[containing_index]
+                    .bounds
+                    .1
+                    .push(*new.bounds().end()..=containing_end);
+                self.partitions.insert(containing_index, new);
+                containing_index
+            } else if self.partitions[containing_index].bounds().end() == new.bounds().end() {
+                let containing_start = *self.partitions[containing_index].bounds().start();
+                self.partitions[containing_index]
+                    .bounds
+                    .1
+                    .push(containing_start..=*new.bounds().start());
+                self.partitions.insert(containing_index, new);
+                containing_index
+            } else {
+                let containing_start = *self.partitions[containing_index].bounds().start();
+                let containing_end = *self.partitions[containing_index].bounds().end();
+                self.partitions[containing_index]
+                    .bounds
+                    .1
+                    .push(containing_start..=*new.bounds().start());
+                let new_end = *new.bounds().end();
+                self.partitions.insert(containing_index + 1, new);
+                self.partitions.insert(
+                    containing_index + 2,
+                    Partition::new(
+                        "".into(),
+                        new_end..=containing_end,
+                        None,
+                        false,
+                        self.raw.sector_size(),
+                    ),
+                );
+
+                containing_index + 1
+            },
+        )
+    }
+
+    pub fn remove_partition(&mut self, mut index: usize) {
+        let removed = self.remove_partition_inner(&mut index);
+        self.changes
+            .push(Change::RemovePartition { index, removed });
+    }
+
+    fn remove_partition_inner(&mut self, index: &mut usize) -> Option<Partition> {
+        if let Some(prev) = self.partitions.get_mut(*index - 1)
+            && !prev.used
+        {
+            if prev.kind == PartitionKind::Virtual {
+                self.partitions.remove(*index - 1);
+                *index -= 1;
+            } else {
+                prev.bounds.1.pop();
+            }
+        }
+        if let Some(next) = self.partitions.get_mut(*index + 1) {
+            match next.kind {
+                PartitionKind::Virtual => {
+                    self.partitions.remove(*index + 1);
+                }
+                PartitionKind::Hidden => {
+                    next.kind = PartitionKind::Real;
+                }
+                PartitionKind::Real => {
+                    next.bounds.1.pop();
+                }
+            }
+        }
+        if self.partitions[*index].kind == PartitionKind::Virtual {
+            Some(self.partitions.remove(*index))
+        } else {
+            self.partitions[*index].kind = PartitionKind::Hidden;
+            None
+        }
     }
 
     pub fn undo_change(&mut self) {
@@ -238,30 +283,17 @@ impl<'a> Device<'a> {
                     self.partitions[index].kind == PartitionKind::Virtual,
                     "undo tried to remove a real partition"
                 );
-                if let Some(prev) = self.partitions.get_mut(index - 1)
-                    && !prev.used
-                {
-                    if prev.kind == PartitionKind::Virtual {
-                        self.partitions.remove(index - 1);
-                        index -= 1;
-                    } else {
-                        prev.bounds.1.pop();
-                    }
+                self.remove_partition_inner(&mut index);
+            }
+            #[allow(clippy::unwrap_used, reason = "a failure here would be a logic bug")]
+            Some(Change::RemovePartition { index, removed }) => {
+                if let Some(removed) = removed {
+                    self.new_partition_inner(removed).unwrap();
+                } else {
+                    let mut hidden = self.partitions.remove(index);
+                    hidden.kind = PartitionKind::Real;
+                    self.new_partition_inner(hidden).unwrap();
                 }
-                if let Some(next) = self.partitions.get_mut(index + 1) {
-                    match next.kind {
-                        PartitionKind::Virtual => {
-                            self.partitions.remove(index + 1);
-                        }
-                        PartitionKind::Hidden => {
-                            next.kind = PartitionKind::Real;
-                        }
-                        PartitionKind::Real => {
-                            next.bounds.1.pop();
-                        }
-                    }
-                }
-                self.partitions.remove(index);
             }
             None => {}
         }
@@ -303,6 +335,10 @@ enum Change {
         bounds: RangeInclusive<i64>,
         index: usize,
     },
+    RemovePartition {
+        index: usize,
+        removed: Option<Partition>,
+    },
 }
 
 impl Change {
@@ -335,6 +371,9 @@ impl Change {
                     // SAFETY: this device reference is only used once
                     &unsafe { disk.get_device().get_optimal_aligned_constraint()? },
                 )
+            }
+            Self::RemovePartition { index, .. } => {
+                disk.remove_partition_by_number(index as u32 + 1)
             }
         }
     }

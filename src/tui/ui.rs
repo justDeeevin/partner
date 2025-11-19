@@ -6,10 +6,9 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Row, Table},
 };
-use std::{path::Path, sync::Arc};
 
 pub fn view(state: &mut State, frame: &mut Frame) {
-    if let Some(device) = state.selected_device.clone() {
+    if let Some(device) = state.selected_device {
         view_device(state, frame, device);
     } else {
         view_devices(state, frame);
@@ -23,7 +22,7 @@ fn view_devices(state: &mut State, frame: &mut Frame) {
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
 
     let table = Table::new(
-        state.devices.values().map(|d| {
+        state.devices.iter().map(|d| {
             Row::new::<[String; COLUMNS]>([
                 d.path().display().to_string(),
                 d.model().to_string(),
@@ -45,10 +44,10 @@ fn view_devices(state: &mut State, frame: &mut Frame) {
     );
 }
 
-fn view_device(state: &mut State, frame: &mut Frame, device: Arc<Path>) {
+fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     const COLUMNS: usize = 5;
 
-    let dev = &state.devices[&device];
+    let dev = &state.devices[device];
 
     let [top, bottom] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(frame.area());
@@ -88,7 +87,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: Arc<Path>) {
             .style(Style::new().bold()),
     )
     .row_highlight_style(Style::new().reversed())
-    .block(Block::bordered().title(format!("Partitions of {}", device.display())));
+    .block(Block::bordered().title(format!("Partitions of {}", dev.path().display())));
 
     frame.render_stateful_widget(table, top, &mut state.table);
     frame.render_widget(

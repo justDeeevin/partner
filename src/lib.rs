@@ -40,11 +40,19 @@ pub enum Error {
 }
 
 impl<'a> Device<'a> {
-    pub fn get_all() -> std::io::Result<Vec<Self>> {
-        let mounts: HashMap<_, _> = proc_mounts::MountIter::new()?
+    fn get_mounts() -> std::io::Result<HashMap<PathBuf, MountInfo>> {
+        Ok(proc_mounts::MountIter::new()?
             .flatten()
             .map(|m| (m.source.clone(), m))
-            .collect();
+            .collect())
+    }
+
+    pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
+        Self::from_libparted(RawDevice::new(path)?, &Self::get_mounts()?)
+    }
+
+    pub fn get_all() -> std::io::Result<Vec<Self>> {
+        let mounts = Self::get_mounts()?;
 
         RawDevice::devices(true)
             .map(|d| Device::from_libparted(d, &mounts))

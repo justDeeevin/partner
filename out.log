@@ -1,0 +1,56 @@
+warning: unused variable: `state`
+  --> src/logic.rs:16:5
+   |
+16 |     state: &mut State,
+   |     ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: unused variable: `update`
+  --> src/logic.rs:17:5
+   |
+17 |     update: Update<Message>,
+   |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_update`
+
+warning: unused variable: `device`
+  --> src/logic.rs:18:5
+   |
+18 |     device: usize,
+   |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: unused variable: `state`
+  --> src/ui.rs:38:16
+   |
+38 | fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
+   |                ^^^^^ help: if this is intentional, prefix it with an underscore: `_state`
+
+warning: unused variable: `frame`
+  --> src/ui.rs:38:35
+   |
+38 | fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
+   |                                   ^^^^^ help: if this is intentional, prefix it with an underscore: `_frame`
+
+warning: unused variable: `device`
+  --> src/ui.rs:38:54
+   |
+38 | fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
+   |                                                      ^^^^^^ help: if this is intentional, prefix it with an underscore: `_device`
+
+warning: `partner` (bin "partner") generated 6 warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running `sudo -E target/debug/partner`
+[src/lib.rs:82:34] value.hw_geom() = _PedCHSGeometry {
+    cylinders: 3830441,
+    heads: 255,
+    sectors: 2,
+}
+[src/lib.rs:82:34] value.hw_geom() = _PedCHSGeometry {
+    cylinders: 7660841,
+    heads: 255,
+    sectors: 2,
+}
+[src/lib.rs:82:34] value.hw_geom() = _PedCHSGeometry {
+    cylinders: 1961206,
+    heads: 255,
+    sectors: 2,
+}

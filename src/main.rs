@@ -5,6 +5,7 @@ use color_eyre::{
 use partner::Device;
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
+use tracing_subscriber::EnvFilter;
 
 mod cli;
 mod logic;
@@ -17,6 +18,15 @@ fn main() -> Result<()> {
 
     if !nix::unistd::Uid::effective().is_root() {
         return Err(eyre!("partner must be run as root"));
+    }
+
+    if let Some(path) = &cli.log_file {
+        let file = std::fs::File::create(path).context("failed to create log file")?;
+        tracing_subscriber::fmt()
+            .with_writer(file)
+            .with_ansi(false)
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
     }
 
     let mut devices = Device::get_all().context("failed to get devices")?;

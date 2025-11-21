@@ -63,7 +63,8 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     let layout = Layout::vertical(constraints).split(frame.area());
 
     let top = layout[0];
-    let bottom = *layout.last().unwrap();
+    let [legend_area, n_changes] =
+        Layout::horizontal([Constraint::Ratio(1, 2); 2]).areas(*layout.last().unwrap());
 
     let block = Block::bordered().title(format!("Partitions of {}", dev.path().display()));
 
@@ -125,6 +126,9 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     if state.selected_partition.is_none() {
         actions.push("Up/Down: Change selection");
     }
+    if state.input.is_none() && dev.n_changes() > 0 {
+        actions.push("Ctrl+z: Undo");
+    }
     if (state.selected_partition.is_none() && !partition.mounted() && partition.used)
         || (state.selected_partition.is_some() && state.input.is_none())
     {
@@ -134,7 +138,18 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
         actions.extend(["Esc: Abort", "Enter: Apply"]);
     }
 
-    frame.render_widget(legend(actions), bottom);
+    frame.render_widget(legend(actions), legend_area);
+    if dev.n_changes() > 0 {
+        frame.render_widget(
+            Text::raw(format!(
+                "{} pending change{}",
+                dev.n_changes(),
+                if dev.n_changes() > 1 { "s" } else { "" }
+            ))
+            .alignment(ratatui::layout::Alignment::Right),
+            n_changes,
+        );
+    }
 
     if let Some(partition) = state.selected_partition {
         view_partition(state, frame, layout[1], device, partition);

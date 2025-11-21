@@ -1,12 +1,15 @@
 use super::State;
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui_elm::{Task, Update};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 type Message = ();
 
 pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, bool) {
-    if let Update::Terminal(Event::Key(KeyEvent { code, .. })) = &update {
+    if let Update::Terminal(Event::Key(KeyEvent {
+        code, modifiers, ..
+    })) = &update
+    {
         match code {
             KeyCode::Up if state.selected_partition.is_none() => {
                 state.table.scroll_up_by(1);
@@ -17,6 +20,14 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
                 return (Task::None, true);
             }
             KeyCode::Char('q') => return (Task::Quit, false),
+            KeyCode::Char('z') if modifiers.contains(KeyModifiers::CONTROL) => {
+                if state.input.is_none()
+                    && let Some(device) = state.selected_device
+                {
+                    state.devices[device].undo_change();
+                }
+                return (Task::None, true);
+            }
             _ => {}
         }
     }

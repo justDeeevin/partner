@@ -10,6 +10,7 @@ use partner::Device;
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
 use tracing_subscriber::EnvFilter;
+use tui_input::Input;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -28,11 +29,12 @@ fn main() -> Result<()> {
             .with_env_filter(EnvFilter::from_default_env())
             .init();
     }
-
     let mut state = State {
         devices: Device::get_all().context("failed to get devices")?,
         selected_device: None,
+        selected_partition: None,
         table: TableState::new().with_selected(Some(0)),
+        input: None,
     };
 
     if let Some(device) = cli.device {
@@ -54,6 +56,8 @@ fn main() -> Result<()> {
 
 struct State<'a> {
     devices: Vec<Device<'a>>,
-    selected_device: Option<usize>,
     table: TableState,
+    selected_device: Option<usize>,
+    selected_partition: Option<usize>,
+    input: Option<Input>,
 }

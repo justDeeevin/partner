@@ -1138,10 +1138,11 @@ dependencies = [
 
 [[package]]
 name = "ratatui-elm"
-version = "0.1.0-alpha.4"
+version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "51d04c5aea70c07c93d41d5c42a20b35123cb1af98c962266c93a8b899678fa9"
+checksum = "e02c6be0a7b817a0f21b8c1a9cf6e25de14d93d2732abc613cd73c771c7d488c"
 dependencies = [
+ "cfg-if",
  "crossterm",
  "futures",
  "ratatui",

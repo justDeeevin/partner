@@ -43,6 +43,7 @@ impl Partition {
         self.name.1.last().unwrap_or(&self.name.0).as_ref()
     }
 
+    /// The bounds of the partition **in sectors**.
     pub fn bounds(&self) -> &RangeInclusive<i64> {
         self.bounds.1.last().unwrap_or(&self.bounds.0)
     }

@@ -1,5 +1,10 @@
 #![deny(clippy::unwrap_used)]
 
+//! A Linux disk partitioning library.
+//!
+//! This library uses [libparted] under the hood, and is intended to be simpler and more
+//! convenient, with built-in support for undoing changes and owned types for partitions and disks.
+
 mod partition;
 
 pub use partition::*;
@@ -16,6 +21,9 @@ use std::{
 
 type RawDevice<'a> = libparted::Device<'a>;
 
+/// A storage device.
+///
+/// Changes are not written to disk until [`commit`](Device::commit) is called.
 pub struct Device<'a> {
     model: Arc<str>,
     path: Arc<Path>,
@@ -49,10 +57,16 @@ impl<'a> Device<'a> {
             .collect())
     }
 
+    /// Open a device from the given block device path.
     pub fn open(path: impl AsRef<Path>) -> std::io::Result<Self> {
         Self::from_libparted(RawDevice::new(path)?, &Self::get_mounts()?)
     }
 
+    /// Get all devices on the system.
+    ///
+    /// This isn't necessarily all of the available devices (for instance, this ignores loopback
+    /// devices). [`open`](Device::open) can be used to open a specific device if you're looking
+    /// for one not returned by this.
     pub fn get_all() -> std::io::Result<Vec<Self>> {
         let mounts = Self::get_mounts()?;
 
@@ -115,6 +129,7 @@ impl<'a> Device<'a> {
             .filter(|(_, p)| p.kind != PartitionKind::Hidden)
     }
 
+    /// Get the number of pending changes.
     pub fn n_changes(&self) -> usize {
         self.changes.len()
     }
@@ -124,6 +139,8 @@ impl<'a> Device<'a> {
         self.changes.push(Change::Name { partition, new });
     }
 
+    /// Create a new partition with the given name, (optionally) filesystem, and bounds **in
+    /// sectors**.
     pub fn new_partition(
         &mut self,
         name: Arc<str>,
@@ -310,6 +327,7 @@ impl<'a> Device<'a> {
         }
     }
 
+    /// Undo the last change.
     pub fn undo_change(&mut self) {
         match self.changes.pop() {
             Some(Change::Name { partition, .. }) => {
@@ -350,6 +368,9 @@ impl<'a> Device<'a> {
             .for_each(|p| p.kind = PartitionKind::Real);
     }
 
+    /// Commit all changes to the device.
+    ///
+    /// This is blocking and will likely take a while.
     pub fn commit(&mut self) -> std::io::Result<()> {
         let mut disk = libparted::Disk::new(&mut self.raw)?;
 

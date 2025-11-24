@@ -117,6 +117,10 @@ fn update_device(
             state.selected_partition = state.table.selected();
             (Task::None, true)
         }
+        KeyCode::Delete if selected_partition.used && !selected_partition.mounted() => {
+            state.devices[device].remove_partition(selected_partition_index);
+            (Task::None, true)
+        }
         _ => (Task::None, false),
     }
 }

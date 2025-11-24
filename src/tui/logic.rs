@@ -100,6 +100,12 @@ fn update_device(
         return (Task::None, false);
     };
 
+    let selected_partition_index = state.table.selected().unwrap();
+    let selected_partition = state.devices[device]
+        .partitions()
+        .nth(selected_partition_index)
+        .unwrap();
+
     match code {
         KeyCode::Esc => {
             state.table.select(Some(device));
@@ -107,14 +113,7 @@ fn update_device(
             state.selected_device = None;
             (Task::None, true)
         }
-        KeyCode::Enter => {
-            let partition = state.devices[device]
-                .partitions()
-                .nth(state.table.selected().unwrap())
-                .unwrap();
-            if partition.mounted() || !partition.used {
-                return (Task::None, false);
-            }
+        KeyCode::Enter if !selected_partition.mounted() && selected_partition.used => {
             state.selected_partition = state.table.selected();
             (Task::None, true)
         }

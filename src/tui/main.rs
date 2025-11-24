@@ -6,9 +6,10 @@ use color_eyre::{
     Result,
     eyre::{Context, eyre},
 };
-use partner::Device;
+use partner::{Device, FileSystem};
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
+use std::ops::RangeInclusive;
 use tracing_subscriber::EnvFilter;
 use tui_input::Input;
 
@@ -54,10 +55,21 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+struct NewPartition {
+    name: String,
+    fs: FileSystem,
+    bounds: RangeInclusive<i64>,
+}
+
 struct State<'a> {
     devices: Vec<Device<'a>>,
     table: TableState,
     selected_device: Option<usize>,
-    selected_partition: Option<usize>,
+    selected_partition: Option<(OneOf<usize, NewPartition>, TableState)>,
     input: Option<Input>,
+}
+
+enum OneOf<T, U> {
+    Left(T),
+    Right(U),
 }

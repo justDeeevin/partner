@@ -1,5 +1,9 @@
-use super::State;
-use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use super::{NewPartition, OneOf, State};
+use partner::FileSystem;
+use ratatui::{
+    crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
+    widgets::TableState,
+};
 use ratatui_elm::{Task, Update};
 use tui_input::{Input, backend::crossterm::EventHandler};
 
@@ -11,12 +15,20 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
     })) = &update
     {
         match code {
-            KeyCode::Up if state.selected_partition.is_none() => {
-                state.table.scroll_up_by(1);
+            KeyCode::Up => {
+                if let Some((_, table)) = &mut state.selected_partition {
+                    table.scroll_up_by(1);
+                } else {
+                    state.table.scroll_up_by(1);
+                }
                 return (Task::None, true);
             }
-            KeyCode::Down if state.selected_partition.is_none() => {
-                state.table.scroll_down_by(1);
+            KeyCode::Down => {
+                if let Some((_, table)) = &mut state.selected_partition {
+                    table.scroll_down_by(1);
+                } else {
+                    state.table.scroll_down_by(1);
+                }
                 return (Task::None, true);
             }
             KeyCode::Char('q') => return (Task::Quit, false),
@@ -32,7 +44,7 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
         }
     }
 
-    if let Some(partition) = state.selected_partition {
+    if let Some(partition) = state.selected_partition.take() {
         update_partition(state, update, partition)
     } else if let Some(device) = state.selected_device {
         update_device(state, update, device)
@@ -44,7 +56,7 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
 fn update_partition(
     state: &mut State,
     update: Update<Message>,
-    partition: usize,
+    (mut partition, table): (OneOf<usize, NewPartition>, TableState),
 ) -> (Task<Message>, bool) {
     let Update::Terminal(event) = update else {
         return (Task::None, false);
@@ -53,31 +65,61 @@ fn update_partition(
         return (Task::None, false);
     };
 
-    match code {
+    let out = match code {
         KeyCode::Esc => {
             if state.input.is_some() {
                 state.input = None;
+                state.selected_partition = Some((partition, table));
                 return (Task::None, true);
             }
-            state.table.select(Some(partition));
+
+            if let OneOf::Left(partition) = partition {
+                state.table.select(Some(partition));
+            }
 
             state.selected_partition = None;
-            (Task::None, true)
+            return (Task::None, true);
         }
         KeyCode::Enter => {
             if let Some(input) = &state.input {
-                state.devices[state.selected_device.unwrap()]
-                    .change_partition_name(partition, input.value().into());
+                match &mut partition {
+                    OneOf::Left(partition) => {
+                        state.devices[state.selected_device.unwrap()]
+                            .change_partition_name(*partition, input.value().into());
+                    }
+                    OneOf::Right(partition) => {
+                        partition.name = input.value().into();
+                    }
+                }
                 state.input = None;
             } else {
-                state.input = Some(Input::new(
-                    state.devices[state.selected_device.unwrap()]
-                        .partitions()
-                        .nth(partition)
-                        .unwrap()
-                        .name()
-                        .to_string(),
-                ));
+                match table.selected_cell() {
+                    Some((0, 0)) => {
+                        let starting_name = match &partition {
+                            OneOf::Left(partition) => state.devices[state.selected_device.unwrap()]
+                                .partitions()
+                                .nth(*partition)
+                                .unwrap()
+                                .name()
+                                .to_string(),
+                            OneOf::Right(partition) => partition.name.clone(),
+                        };
+                        state.input = Some(Input::new(starting_name));
+                    }
+                    Some((1, 0)) => {
+                        if let OneOf::Right(partition) = partition {
+                            state.devices[state.selected_device.unwrap()]
+                                .new_partition(
+                                    partition.name.into(),
+                                    Some(partition.fs),
+                                    partition.bounds,
+                                )
+                                .unwrap();
+                            return (Task::None, true);
+                        }
+                    }
+                    _ => {}
+                }
             }
             (Task::None, true)
         }
@@ -88,7 +130,9 @@ fn update_partition(
                 (Task::None, false)
             }
         }
-    }
+    };
+    state.selected_partition = Some((partition, table));
+    out
 }
 
 fn update_device(
@@ -113,8 +157,24 @@ fn update_device(
             state.selected_device = None;
             (Task::None, true)
         }
-        KeyCode::Enter if !selected_partition.mounted() && selected_partition.used() => {
-            state.selected_partition = state.table.selected();
+        KeyCode::Enter if selected_partition.used() && !selected_partition.mounted() => {
+            state.selected_partition = state.table.selected().map(|s| {
+                (
+                    OneOf::Left(s),
+                    TableState::new().with_selected_cell(Some((0, 0))),
+                )
+            });
+            (Task::None, true)
+        }
+        KeyCode::Enter if !selected_partition.used() => {
+            state.selected_partition = Some((
+                OneOf::Right(NewPartition {
+                    name: "".into(),
+                    fs: FileSystem::Ext4,
+                    bounds: selected_partition.bounds().clone(),
+                }),
+                TableState::new().with_selected_cell(Some((0, 0))),
+            ));
             (Task::None, true)
         }
         KeyCode::Delete if selected_partition.used() && !selected_partition.mounted() => {

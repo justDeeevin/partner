@@ -62,9 +62,18 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     constraints.push(Constraint::Length(1));
     let layout = Layout::vertical(constraints).split(frame.area());
 
+    let n_changes_contents = format!(
+        "{} pending change{}",
+        dev.n_changes(),
+        if dev.n_changes() > 1 { "s" } else { "" }
+    );
+
     let top = layout[0];
-    let [legend_area, n_changes] =
-        Layout::horizontal([Constraint::Ratio(1, 2); 2]).areas(*layout.last().unwrap());
+    let [legend_area, n_changes] = Layout::horizontal([
+        Constraint::Min(0),
+        Constraint::Length(n_changes_contents.chars().count() as u16),
+    ])
+    .areas(*layout.last().unwrap());
 
     let block = Block::bordered().title(format!("Partitions of {}", dev.path().display()));
 
@@ -141,12 +150,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     frame.render_widget(legend(actions), legend_area);
     if dev.n_changes() > 0 {
         frame.render_widget(
-            Text::raw(format!(
-                "{} pending change{}",
-                dev.n_changes(),
-                if dev.n_changes() > 1 { "s" } else { "" }
-            ))
-            .alignment(ratatui::layout::Alignment::Right),
+            Text::raw(n_changes_contents).alignment(ratatui::layout::Alignment::Right),
             n_changes,
         );
     }

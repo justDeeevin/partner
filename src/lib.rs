@@ -122,6 +122,10 @@ impl<'a> Device<'a> {
             .filter(|p| p.kind != PartitionKind::Hidden)
     }
 
+    pub fn sector_size(&self) -> u64 {
+        self.raw.sector_size()
+    }
+
     fn partitions_enum(&self) -> impl Iterator<Item = (usize, &Partition)> {
         self.partitions
             .iter()

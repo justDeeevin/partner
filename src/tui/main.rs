@@ -2,11 +2,12 @@ mod cli;
 mod logic;
 mod ui;
 
+use byte_unit::Byte;
 use color_eyre::{
     Result,
     eyre::{Context, eyre},
 };
-use partner::{Device, FileSystem};
+use partner::{Device, FileSystem, Partition};
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
 use std::ops::RangeInclusive;
@@ -72,4 +73,25 @@ struct State<'a> {
 enum OneOf<T, U> {
     Left(T),
     Right(U),
+}
+
+fn get_preceding(dev: &Device, bounds: &RangeInclusive<i64>) -> Byte {
+    let prev_index = {
+        let next_index = dev
+            .partitions()
+            .position(|p| p.bounds().end() > bounds.start())
+            .unwrap();
+        next_index as i64 - 1
+    };
+    if prev_index < 0 {
+        Byte::from_u64(0)
+    } else {
+        let prev_end = dev
+            .partitions()
+            .nth(prev_index as usize)
+            .unwrap()
+            .bounds()
+            .end();
+        Byte::from_u64((bounds.start() - prev_end - 1) as u64 * dev.sector_size())
+    }
 }

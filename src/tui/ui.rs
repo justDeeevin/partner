@@ -1,11 +1,11 @@
-use super::State;
+use super::{NewPartition, OneOf, State};
 use itertools::intersperse_with;
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
     style::{Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, Row, Table},
+    widgets::{Block, Row, Table, TableState},
 };
 
 pub fn view(state: &mut State, frame: &mut Frame) {
@@ -124,10 +124,15 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     frame.render_stateful_widget(table, top, &mut state.table);
 
     let mut actions = if state.input.is_none() {
-        vec!["q: Quit", "Esc: Back"]
+        vec!["q: Quit"]
     } else {
         Vec::new()
     };
+    if matches!(state.selected_partition, Some((OneOf::Right(_), _))) {
+        actions.push("Esc: Abort");
+    } else {
+        actions.push("Esc: Back");
+    }
     let partition = dev
         .partitions()
         .nth(state.table.selected().unwrap())
@@ -138,10 +143,14 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     if state.input.is_none() && dev.n_changes() > 0 {
         actions.push("Ctrl+z: Undo");
     }
-    if (state.selected_partition.is_none() && !partition.mounted() && partition.used())
-        || (state.selected_partition.is_some() && state.input.is_none())
-    {
+    if state.selected_partition.is_none() && !partition.used() {
+        actions.push("Enter: Create");
+    }
+    if state.selected_partition.is_none() && !partition.mounted() && partition.used() {
         actions.push("Enter: Edit");
+    }
+    if state.selected_partition.is_some() && state.input.is_none() {
+        actions.push("Enter: Select");
     }
     if state.selected_partition.is_none() && !partition.mounted() && partition.used() {
         actions.push("Delete: Remove");
@@ -158,7 +167,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
         );
     }
 
-    if let Some(partition) = state.selected_partition {
+    if let Some(partition) = state.selected_partition.take() {
         view_partition(state, frame, layout[1], device, partition);
     }
 }
@@ -170,29 +179,67 @@ fn legend<'a>(spans: impl IntoIterator<Item = impl Into<Span<'a>>>) -> Text<'a> 
     .into()
 }
 
-fn view_partition(state: &State, frame: &mut Frame, area: Rect, device: usize, partition: usize) {
-    let partition = &state.devices[device].partitions().nth(partition).unwrap();
-    let block = Block::bordered()
-        .title(format!(
+fn view_partition(
+    state: &mut State,
+    frame: &mut Frame,
+    area: Rect,
+    device: usize,
+    (partition, mut table_state): (OneOf<usize, NewPartition>, TableState),
+) {
+    let title = if let OneOf::Left(partition) = &partition {
+        format!(
             "Partition {}",
-            partition.path.as_ref().unwrap().display()
-        ))
+            state.devices[device]
+                .partitions()
+                .nth(*partition)
+                .as_ref()
+                .unwrap()
+                .path
+                .as_ref()
+                .unwrap()
+                .display()
+        )
+    } else {
+        "New Partition".to_string()
+    };
+    let block = Block::bordered()
+        .title(title)
         .title_style(Style::new().bold());
-    frame.render_widget(&block, area);
-    let area = block.inner(area);
-    let spans = [
-        Span::raw("Name:").style(Style::new().bold().reversed()),
-        Span::raw(" "),
-        state
-            .input
-            .as_ref()
-            .map(|i| i.value())
-            .unwrap_or(partition.name())
-            .into(),
-    ];
-    frame.render_widget(Line::from_iter(spans), area);
+    let name = state
+        .input
+        .as_ref()
+        .map(|i| i.value())
+        .unwrap_or(match &partition {
+            OneOf::Left(partition) => state.devices[device]
+                .partitions()
+                .nth(*partition)
+                .unwrap()
+                .name(),
+            OneOf::Right(partition) => &partition.name,
+        });
+
+    // TODO: other fields!
+    let mut rows = vec![Row::from_iter([format!("Name: {name}")])];
+    if matches!(partition, OneOf::Right(_)) {
+        rows.push(Row::from_iter(["Submit"]));
+    }
+    let mut table = Table::new(rows, [Constraint::Min(0)]).block(block);
+    if state.input.is_none() {
+        table = table.cell_highlight_style(Style::new().reversed());
+    }
+
+    frame.render_stateful_widget(table, area, &mut table_state);
+    let x_offset = match table_state.selected_cell().unwrap() {
+        (0, 0) => "Name: ".len(),
+        (1, 0) => 0,
+        _ => unreachable!(),
+    } as u16
+        + 1;
+
     if let Some(input) = &state.input {
         let x = input.visual_cursor();
-        frame.set_cursor_position((area.x + x as u16 + 6, area.y));
+        frame.set_cursor_position((area.x + x as u16 + x_offset, area.y + 1));
     }
+
+    state.selected_partition = Some((partition, table_state));
 }

@@ -143,6 +143,9 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     {
         actions.push("Enter: Edit");
     }
+    if state.selected_partition.is_none() && !partition.mounted() && partition.used {
+        actions.push("Delete: Remove");
+    }
     if state.input.is_some() {
         actions.extend(["Esc: Abort", "Enter: Apply"]);
     }

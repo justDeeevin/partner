@@ -1,4 +1,5 @@
-use super::{NewPartition, OneOf, State};
+use super::{NewPartition, OneOf, State, get_preceding};
+use byte_unit::Byte;
 use itertools::intersperse_with;
 use ratatui::{
     Frame,
@@ -186,18 +187,18 @@ fn view_partition(
     device: usize,
     (partition, mut table_state): (OneOf<usize, NewPartition>, TableState),
 ) {
+    let dev = &state.devices[device];
     let title = if let OneOf::Left(partition) = &partition {
         format!(
             "Partition {}",
-            state.devices[device]
-                .partitions()
+            dev.partitions()
                 .nth(*partition)
                 .as_ref()
                 .unwrap()
                 .path
                 .as_ref()
-                .unwrap()
-                .display()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| { partition.to_string() })
         )
     } else {
         "New Partition".to_string()
@@ -210,16 +211,27 @@ fn view_partition(
         .as_ref()
         .map(|i| i.value())
         .unwrap_or(match &partition {
-            OneOf::Left(partition) => state.devices[device]
-                .partitions()
-                .nth(*partition)
-                .unwrap()
-                .name(),
+            OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().name(),
             OneOf::Right(partition) => &partition.name,
         });
+    let bounds = match &partition {
+        OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().bounds(),
+        OneOf::Right(partition) => &partition.bounds,
+    };
+    let size = match &partition {
+        OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().size(),
+        OneOf::Right(partition) => Byte::from_u64(
+            (partition.bounds.end() - partition.bounds.start()) as u64 * dev.sector_size(),
+        ),
+    };
 
-    // TODO: other fields!
-    let mut rows = vec![Row::from_iter([format!("Name: {name}")])];
+    let preceding = get_preceding(dev, bounds);
+
+    let mut rows = vec![
+        Row::from_iter([format!("Name: {name}")]),
+        Row::from_iter([format!("Preceding: {preceding:#.10}")]),
+        Row::from_iter([format!("Size: {size:#.10}")]),
+    ];
     if matches!(partition, OneOf::Right(_)) {
         rows.push(Row::from_iter(["Submit"]));
     }
@@ -229,14 +241,15 @@ fn view_partition(
     }
 
     frame.render_stateful_widget(table, area, &mut table_state);
-    let x_offset = match table_state.selected_cell().unwrap() {
-        (0, 0) => "Name: ".len(),
-        (1, 0) => 0,
-        _ => unreachable!(),
-    } as u16
-        + 1;
 
     if let Some(input) = &state.input {
+        let x_offset = match table_state.selected_cell().unwrap() {
+            (0, 0) => "Name: ".len(),
+            (1, 0) => "Preceding: ".len(),
+            (3, 0) => 0,
+            _ => unreachable!(),
+        } as u16
+            + 1;
         let x = input.visual_cursor();
         frame.set_cursor_position((area.x + x as u16 + x_offset, area.y + 1));
     }

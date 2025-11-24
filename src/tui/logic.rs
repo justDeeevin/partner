@@ -1,4 +1,7 @@
+use crate::get_preceding;
+
 use super::{NewPartition, OneOf, State};
+use byte_unit::Byte;
 use partner::FileSystem;
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
@@ -82,14 +85,18 @@ fn update_partition(
         }
         KeyCode::Enter => {
             if let Some(input) = &state.input {
-                match &mut partition {
-                    OneOf::Left(partition) => {
-                        state.devices[state.selected_device.unwrap()]
-                            .change_partition_name(*partition, input.value().into());
-                    }
-                    OneOf::Right(partition) => {
-                        partition.name = input.value().into();
-                    }
+                match table.selected_cell() {
+                    Some((0, 0)) => match &mut partition {
+                        OneOf::Left(partition) => {
+                            state.devices[state.selected_device.unwrap()]
+                                .change_partition_name(*partition, input.value().into());
+                        }
+                        OneOf::Right(partition) => {
+                            partition.name = input.value().into();
+                        }
+                    },
+                    Some((1, 0)) => todo!(),
+                    _ => {}
                 }
                 state.input = None;
             } else {
@@ -107,6 +114,30 @@ fn update_partition(
                         state.input = Some(Input::new(starting_name));
                     }
                     Some((1, 0)) => {
+                        let dev = &state.devices[state.selected_device.unwrap()];
+                        let starting_preceding = match &partition {
+                            OneOf::Left(partition) => get_preceding(
+                                dev,
+                                dev.partitions().nth(*partition).unwrap().bounds(),
+                            ),
+                            OneOf::Right(partition) => get_preceding(dev, &partition.bounds),
+                        };
+                        state.input = Some(Input::new(format!("{starting_preceding:#.10}")));
+                    }
+                    Some((2, 0)) => {
+                        let dev = &state.devices[state.selected_device.unwrap()];
+                        let starting_size = match &partition {
+                            OneOf::Left(partition) => {
+                                dev.partitions().nth(*partition).unwrap().size()
+                            }
+                            OneOf::Right(partition) => Byte::from_u64(
+                                (partition.bounds.end() - partition.bounds.start()) as u64
+                                    * dev.sector_size(),
+                            ),
+                        };
+                        state.input = Some(Input::new(format!("{starting_size:#.10}")));
+                    }
+                    Some((3, 0)) => {
                         if let OneOf::Right(partition) = partition {
                             state.devices[state.selected_device.unwrap()]
                                 .new_partition(

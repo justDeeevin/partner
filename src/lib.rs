@@ -19,7 +19,6 @@ type RawDevice<'a> = libparted::Device<'a>;
 pub struct Device<'a> {
     model: Arc<str>,
     path: Arc<Path>,
-    size: Byte,
     partitions: Vec<Partition>,
     changes: Vec<Change>,
     raw: RawDevice<'a>,
@@ -30,7 +29,7 @@ impl Debug for Device<'_> {
         f.debug_struct("Device")
             .field("model", &self.model)
             .field("path", &self.path)
-            .field("size", &self.size)
+            .field("size", &self.size())
             .field("partitions", &self.partitions().collect::<Vec<_>>())
             .finish()
     }
@@ -81,7 +80,6 @@ impl<'a> Device<'a> {
         Ok(Self {
             model: value.model().into(),
             path: value.path().into(),
-            size: Byte::from_u64(value.length() * sector_size),
             partitions,
             changes: Vec::new(),
             raw: value,
@@ -101,7 +99,7 @@ impl<'a> Device<'a> {
     }
 
     pub fn size(&self) -> Byte {
-        self.size
+        Byte::from_u64(self.raw.length() * self.raw.sector_size())
     }
 
     pub fn partitions(&self) -> impl Iterator<Item = &Partition> {

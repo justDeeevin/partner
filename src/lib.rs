@@ -275,6 +275,7 @@ impl<'a> Device<'a> {
                 }
                 PartitionKind::Hidden => {
                     next.kind = PartitionKind::Real;
+                    to_insert = None;
                 }
                 PartitionKind::Real => {
                     if undo {

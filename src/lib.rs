@@ -74,21 +74,8 @@ impl<'a> Device<'a> {
                 Partition::from_libparted(p, sector_size, mount)
             })
             .collect::<Vec<_>>();
-        if let [first, second] = partitions.iter().take(2).collect::<Vec<_>>().as_slice()
-            && !first.used
-            && !second.used
-        {
+        if partitions.len() > 1 {
             partitions.remove(0);
-        }
-        if partitions.len() >= 2
-            && let [second_to_last, last] = partitions
-                .iter()
-                .skip(partitions.len() - 2)
-                .collect::<Vec<_>>()
-                .as_slice()
-            && !second_to_last.used
-            && !last.used
-        {
             partitions.pop();
         }
         Ok(Self {

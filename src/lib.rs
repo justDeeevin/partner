@@ -142,13 +142,8 @@ impl<'a> Device<'a> {
             Bound::Unbounded => self.raw.length() as i64,
         };
 
-        let new_partition = Partition::new(
-            name.clone(),
-            bounds.clone(),
-            fs,
-            true,
-            self.raw.sector_size(),
-        );
+        let new_partition =
+            Partition::new(name.clone(), bounds.clone(), fs, self.raw.sector_size());
 
         let index = self.new_partition_inner(new_partition, false)?;
 
@@ -166,7 +161,7 @@ impl<'a> Device<'a> {
         let containing_index = self
             .partitions_enum()
             .find(|(_, p)| {
-                !p.used
+                !p.used()
                     && p.bounds().contains(new.bounds().start())
                     && p.bounds().contains(new.bounds().end())
             })
@@ -176,7 +171,7 @@ impl<'a> Device<'a> {
                     .partitions
                     .iter()
                     .position(|p| {
-                        !p.used
+                        !p.used()
                             && (p.bounds().contains(new.bounds().start())
                                 || p.bounds().contains(new.bounds().end()))
                     })
@@ -236,7 +231,6 @@ impl<'a> Device<'a> {
                         "".into(),
                         new_end..=containing_end,
                         None,
-                        false,
                         self.raw.sector_size(),
                     ),
                 );
@@ -254,11 +248,11 @@ impl<'a> Device<'a> {
 
     fn remove_partition_inner(&mut self, index: &mut usize, undo: bool) -> Option<Partition> {
         let mut to_insert =
-            Some(|bounds| Partition::new("".into(), bounds, None, false, self.raw.sector_size()));
+            Some(|bounds| Partition::new("".into(), bounds, None, self.raw.sector_size()));
         let this_partition_bounds = self.partitions[*index].bounds().clone();
         if *index > 0
             && let Some(prev) = self.partitions.get_mut(*index - 1)
-            && !prev.used
+            && !prev.used()
         {
             if prev.kind == PartitionKind::Virtual {
                 self.partitions.remove(*index - 1);
@@ -273,7 +267,7 @@ impl<'a> Device<'a> {
             }
         }
         if let Some(next) = self.partitions.get_mut(*index + 1)
-            && !next.used
+            && !next.used()
         {
             match next.kind {
                 PartitionKind::Virtual => {
@@ -298,7 +292,7 @@ impl<'a> Device<'a> {
             if let Some(to_insert) = to_insert {
                 let out = std::mem::replace(
                     &mut self.partitions[*index],
-                    Partition::new("".into(), 0..=0, None, false, 0),
+                    Partition::new("".into(), 0..=0, None, 0),
                 );
                 self.partitions[*index] = to_insert(out.bounds().clone());
                 Some(out)

@@ -90,7 +90,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
                     p.path
                         .as_ref()
                         .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "unused".to_string()),
+                        .unwrap_or_else(|| if p.fs().is_some() { "N/A" } else { "unused" }.into()),
                 );
                 if p.mounted() {
                     Line::from_iter([path_span, Span::styled(" (mounted)", Style::new().bold())])

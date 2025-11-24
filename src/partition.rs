@@ -61,7 +61,7 @@ impl Partition {
     }
 
     pub fn used(&self) -> bool {
-        self.fs().is_some()
+        self.fs().is_some() || self.path.is_some()
     }
 
     pub(crate) fn undo_all_changes(&mut self) {

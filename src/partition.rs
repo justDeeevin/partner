@@ -25,11 +25,12 @@ impl Debug for Partition {
             .field("name", &self.name())
             .field("bounds", self.bounds())
             .field("fs", &self.fs())
+            .field("kind", &self.kind)
             .finish()
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PartitionKind {
     /// A partition that concretely exists
     Real,

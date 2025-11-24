@@ -138,12 +138,12 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     if state.input.is_none() && dev.n_changes() > 0 {
         actions.push("Ctrl+z: Undo");
     }
-    if (state.selected_partition.is_none() && !partition.mounted() && partition.used)
+    if (state.selected_partition.is_none() && !partition.mounted() && partition.used())
         || (state.selected_partition.is_some() && state.input.is_none())
     {
         actions.push("Enter: Edit");
     }
-    if state.selected_partition.is_none() && !partition.mounted() && partition.used {
+    if state.selected_partition.is_none() && !partition.mounted() && partition.used() {
         actions.push("Delete: Remove");
     }
     if state.input.is_some() {

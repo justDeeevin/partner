@@ -8,7 +8,6 @@ pub struct Partition {
     // TODO
     // pub occupied: Byte,
     pub mount_point: Option<Arc<Path>>,
-    pub used: bool,
     pub(crate) kind: PartitionKind,
     pub(crate) name: (Arc<str>, Vec<Arc<str>>),
     pub(crate) bounds: (RangeInclusive<i64>, Vec<RangeInclusive<i64>>),
@@ -21,7 +20,6 @@ impl Debug for Partition {
         f.debug_struct("Partition")
             .field("path", &self.path)
             .field("mount_point", &self.mount_point)
-            .field("used", &self.used)
             .field("name", &self.name())
             .field("bounds", self.bounds())
             .field("fs", &self.fs())
@@ -62,6 +60,10 @@ impl Partition {
         Byte::from_u64((bounds.end() - bounds.start()) as u64 * self.sector_size)
     }
 
+    pub fn used(&self) -> bool {
+        self.fs().is_some()
+    }
+
     pub(crate) fn undo_all_changes(&mut self) {
         self.name.1.clear();
         self.bounds.1.clear();
@@ -75,7 +77,6 @@ impl Partition {
     ) -> Self {
         let path = value.get_path().map(Arc::from);
         Self {
-            used: path.is_some(),
             path,
             mount_point: mount_info.map(|m| Arc::from(m.dest.as_ref())),
             kind: PartitionKind::Real,
@@ -94,13 +95,11 @@ impl Partition {
         name: Arc<str>,
         bounds: RangeInclusive<i64>,
         fs: Option<FileSystem>,
-        used: bool,
         sector_size: u64,
     ) -> Self {
         Self {
             path: None,
             mount_point: None,
-            used,
             kind: PartitionKind::Virtual,
             name: (name, Vec::new()),
             bounds: (bounds, Vec::new()),

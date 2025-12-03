@@ -35,7 +35,7 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
                 }
                 return (Task::None, true);
             }
-            KeyCode::Char('q') => return (Task::Quit, false),
+            KeyCode::Char('q') if state.input.is_none() => return (Task::Quit, false),
             KeyCode::Char('z') if modifiers.contains(KeyModifiers::CONTROL) => {
                 if state.input.is_none()
                     && let Some(device) = state.selected_device

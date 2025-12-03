@@ -1,6 +1,6 @@
-use crate::get_preceding;
+use crate::{OneOf, get_preceding, partitions_with_empty};
 
-use super::{NewPartition, OneOf, State};
+use super::{NewPartition, State};
 use byte_unit::Byte;
 use partner::FileSystem;
 use ratatui::{
@@ -176,10 +176,8 @@ fn update_device(
     };
 
     let selected_partition_index = state.table.selected().unwrap();
-    let selected_partition = state.devices[device]
-        .partitions()
-        .nth(selected_partition_index)
-        .unwrap();
+    let partitions = partitions_with_empty(&state.devices[device]);
+    let selected_partition = &partitions[selected_partition_index];
 
     match code {
         KeyCode::Esc => {
@@ -188,7 +186,7 @@ fn update_device(
             state.selected_device = None;
             (Task::None, true)
         }
-        KeyCode::Enter if selected_partition.used() && !selected_partition.mounted() => {
+        KeyCode::Enter if selected_partition.left().is_some_and(|p| !p.mounted()) => {
             state.selected_partition = state.table.selected().map(|s| {
                 (
                     OneOf::Left(s),
@@ -197,19 +195,27 @@ fn update_device(
             });
             (Task::None, true)
         }
-        KeyCode::Enter if !selected_partition.used() => {
+        KeyCode::Enter => {
+            let OneOf::Right(bounds) = selected_partition else {
+                return (Task::None, false);
+            };
             state.selected_partition = Some((
                 OneOf::Right(NewPartition {
                     name: "".into(),
                     fs: FileSystem::Ext4,
-                    bounds: selected_partition.bounds().clone(),
+                    bounds: bounds.clone(),
                 }),
                 TableState::new().with_selected_cell(Some((0, 0))),
             ));
             (Task::None, true)
         }
-        KeyCode::Delete if selected_partition.used() && !selected_partition.mounted() => {
-            state.devices[device].remove_partition(selected_partition_index);
+        KeyCode::Delete if selected_partition.left().is_some_and(|p| !p.mounted()) => {
+            let offset = partitions
+                .iter()
+                .take(selected_partition_index)
+                .filter(|p| p.is_right())
+                .count();
+            state.devices[device].remove_partition(selected_partition_index - offset);
             (Task::None, true)
         }
         _ => (Task::None, false),

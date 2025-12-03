@@ -7,7 +7,7 @@ use color_eyre::{
     Result,
     eyre::{Context, eyre},
 };
-use partner::{Device, FileSystem};
+use partner::{Device, FileSystem, Partition};
 use ratatui::widgets::TableState;
 use ratatui_elm::App;
 use std::ops::RangeInclusive;
@@ -70,9 +70,63 @@ struct State<'a> {
     input: Option<Input>,
 }
 
+fn partitions_with_empty<'a>(dev: &'a Device) -> Vec<OneOf<&'a Partition, RangeInclusive<i64>>> {
+    let mut partitions = dev.partitions().map(OneOf::Left).collect::<Vec<_>>();
+    if !partitions.is_empty() {
+        let mut i = 0;
+        if *partitions[0].left().unwrap().bounds().start() > 1 {
+            partitions.insert(
+                0,
+                OneOf::Right(1..=partitions[0].left().unwrap().bounds().start() - 1),
+            );
+            i += 1;
+        }
+        while i < partitions.len() - 1 {
+            let left = *partitions[i].left().unwrap().bounds().end();
+            let right = *partitions[i + 1].left().unwrap().bounds().start();
+            assert!(right > left, "overlapping partitions");
+            if right - left > 1 {
+                partitions.insert(i + 1, OneOf::Right(left + 1..=right - 1));
+                i += 1;
+            }
+
+            i += 1;
+        }
+        let end = *partitions
+            .last()
+            .and_then(|p| match p {
+                OneOf::Left(p) => Some(p),
+                OneOf::Right(_) => None,
+            })
+            .unwrap()
+            .bounds()
+            .end();
+        if Byte::from_u64(end as u64 * dev.sector_size()) < dev.size() {
+            partitions.push(OneOf::Right(
+                end..=(dev.size().as_u64() / dev.sector_size()) as i64,
+            ));
+        }
+    }
+
+    partitions
+}
+
 enum OneOf<T, U> {
     Left(T),
     Right(U),
+}
+
+impl<T, U> OneOf<T, U> {
+    pub fn left(&self) -> Option<&T> {
+        match self {
+            OneOf::Left(l) => Some(l),
+            OneOf::Right(_) => None,
+        }
+    }
+
+    pub fn is_right(&self) -> bool {
+        matches!(self, OneOf::Right(_))
+    }
 }
 
 fn get_preceding(dev: &Device, bounds: &RangeInclusive<i64>) -> Byte {

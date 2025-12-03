@@ -61,10 +61,6 @@ impl Partition {
         Byte::from_u64((bounds.end() - bounds.start()) as u64 * self.sector_size)
     }
 
-    pub fn used(&self) -> bool {
-        self.fs().is_some() || self.path.is_some()
-    }
-
     pub(crate) fn undo_all_changes(&mut self) {
         self.name.1.clear();
         self.bounds.1.clear();

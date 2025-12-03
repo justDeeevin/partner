@@ -1,4 +1,4 @@
-use super::{NewPartition, OneOf, State, get_preceding};
+use super::{NewPartition, OneOf, State, get_preceding, partitions_with_empty};
 use byte_unit::Byte;
 use itertools::intersperse_with;
 use ratatui::{
@@ -84,14 +84,31 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
         block
     };
 
+    let partitions = partitions_with_empty(dev);
+
     let table = Table::new(
-        dev.partitions().map(|p| {
+        partitions.iter().map(|p| {
+            let p = match p {
+                OneOf::Left(p) => p,
+                OneOf::Right(p) => {
+                    return Row::new::<[String; COLUMNS]>([
+                        "unused".into(),
+                        "".into(),
+                        format!(
+                            "{:#.10}",
+                            Byte::from_u64((p.end() - p.start()) as u64 * dev.sector_size())
+                        ),
+                        "".into(),
+                        "".into(),
+                    ]);
+                }
+            };
             let path_line = {
                 let path_span = Span::raw(
                     p.path
                         .as_ref()
                         .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| if p.fs().is_some() { "N/A" } else { "unused" }.into()),
+                        .unwrap_or_else(|| "N/A".into()),
                 );
                 if p.mounted() {
                     Line::from_iter([path_span, Span::styled(" (mounted)", Style::new().bold())])
@@ -134,26 +151,29 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     } else {
         actions.push("Esc: Back");
     }
-    let partition = dev
-        .partitions()
-        .nth(state.table.selected().unwrap())
-        .unwrap();
+    let partition = &partitions[state.table.selected().unwrap()];
     if state.selected_partition.is_none() {
         actions.push("Up/Down: Change selection");
     }
     if state.input.is_none() && dev.n_changes() > 0 {
         actions.push("Ctrl+z: Undo");
     }
-    if state.selected_partition.is_none() && !partition.used() {
+    if state.selected_partition.is_none() && matches!(partition, OneOf::Right(_)) {
         actions.push("Enter: Create");
     }
-    if state.selected_partition.is_none() && !partition.mounted() && partition.used() {
+    if state.selected_partition.is_none()
+        && let OneOf::Left(partition) = partition
+        && !partition.mounted()
+    {
         actions.push("Enter: Edit");
     }
     if state.selected_partition.is_some() && state.input.is_none() {
         actions.push("Enter: Select");
     }
-    if state.selected_partition.is_none() && !partition.mounted() && partition.used() {
+    if state.selected_partition.is_none()
+        && let OneOf::Left(partition) = partition
+        && !partition.mounted()
+    {
         actions.push("Delete: Remove");
     }
     if state.input.is_some() {
@@ -188,12 +208,12 @@ fn view_partition(
     (partition, mut table_state): (OneOf<usize, NewPartition>, TableState),
 ) {
     let dev = &state.devices[device];
+    let partitions = partitions_with_empty(dev);
     let title = if let OneOf::Left(partition) = &partition {
         format!(
             "Partition {}",
-            dev.partitions()
-                .nth(*partition)
-                .as_ref()
+            partitions[*partition]
+                .left()
                 .unwrap()
                 .path
                 .as_ref()
@@ -211,15 +231,15 @@ fn view_partition(
         .as_ref()
         .map(|i| i.value())
         .unwrap_or(match &partition {
-            OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().name(),
+            OneOf::Left(partition) => partitions[*partition].left().unwrap().name(),
             OneOf::Right(partition) => &partition.name,
         });
     let bounds = match &partition {
-        OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().bounds(),
+        OneOf::Left(partition) => partitions[*partition].left().unwrap().bounds(),
         OneOf::Right(partition) => &partition.bounds,
     };
     let size = match &partition {
-        OneOf::Left(partition) => dev.partitions().nth(*partition).unwrap().size(),
+        OneOf::Left(partition) => partitions[*partition].left().unwrap().size(),
         OneOf::Right(partition) => Byte::from_u64(
             (partition.bounds.end() - partition.bounds.start()) as u64 * dev.sector_size(),
         ),

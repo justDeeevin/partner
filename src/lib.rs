@@ -80,17 +80,13 @@ impl<'a> Device<'a> {
         mounts: &HashMap<PathBuf, MountInfo>,
     ) -> std::io::Result<Self> {
         let sector_size = value.sector_size();
-        let mut partitions = libparted::Disk::new(&mut value)?
+        let partitions = libparted::Disk::new(&mut value)?
             .parts()
-            .map(|p| {
-                let mount = p.get_path().and_then(|p| mounts.get(p));
-                Partition::from_libparted(p, sector_size, mount)
+            .filter_map(|p| {
+                let mount = mounts.get(p.get_path()?);
+                Some(Partition::from_libparted(p, sector_size, mount))
             })
             .collect::<Vec<_>>();
-        if partitions.len() > 1 {
-            partitions.remove(0);
-            partitions.pop();
-        }
         Ok(Self {
             model: value.model().into(),
             path: value.path().into(),
@@ -161,10 +157,35 @@ impl<'a> Device<'a> {
             Bound::Unbounded => self.raw.length() as i64,
         };
 
-        let new_partition =
-            Partition::new(name.clone(), bounds.clone(), fs, self.raw.sector_size());
+        let index = {
+            let mut iter = self.partitions_enum().peekable();
+            let mut out = 0;
 
-        let index = self.new_partition_inner(new_partition, false)?;
+            while let Some((i, p)) = iter.next() {
+                if p.bounds().end() < bounds.start()
+                    && iter
+                        .peek()
+                        .is_some_and(|(_, p)| p.bounds().start() > bounds.end())
+                {
+                    out = i;
+                    break;
+                } else if p.bounds().end() <= bounds.start() {
+                    return Err(Error::OverlapsExisting(i));
+                } else if iter
+                    .peek()
+                    .is_some_and(|(_, p)| p.bounds().start() <= bounds.end())
+                {
+                    return Err(Error::OverlapsExisting(i + 1));
+                }
+            }
+
+            out
+        };
+
+        self.partitions.insert(
+            index,
+            Partition::new(name.clone(), bounds.clone(), fs, self.raw.sector_size()),
+        );
 
         self.changes.push(Change::NewPartition {
             name,
@@ -176,159 +197,26 @@ impl<'a> Device<'a> {
         Ok(())
     }
 
-    fn new_partition_inner(&mut self, new: Partition, undo: bool) -> Result<usize, Error> {
-        let containing_index = self
+    /// Remove the partition at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn remove_partition(&mut self, index: usize) {
+        let index = self
             .partitions_enum()
-            .find(|(_, p)| {
-                !p.used()
-                    && p.bounds().contains(new.bounds().start())
-                    && p.bounds().contains(new.bounds().end())
-            })
-            .ok_or_else(|| {
-                #[allow(clippy::unwrap_used, reason = "the only situation in which the above returns `None` is when there is at least one index for which this is true")]
-                let index = self
-                    .partitions
-                    .iter()
-                    .position(|p| {
-                        !p.used()
-                            && (p.bounds().contains(new.bounds().start())
-                                || p.bounds().contains(new.bounds().end()))
-                    })
-                    .unwrap();
-                Error::OverlapsExisting(index)
-            })?.0;
+            .nth(index)
+            .expect("partition index out of bounds")
+            .0;
+        let removed = if self.partitions[index].kind == PartitionKind::Virtual {
+            Some(self.partitions.remove(index))
+        } else {
+            self.partitions[index].kind = PartitionKind::Hidden;
+            None
+        };
 
-        Ok(
-            if self.partitions[containing_index].bounds() == new.bounds() {
-                if self.partitions[containing_index].kind == PartitionKind::Virtual {
-                    self.partitions[containing_index] = new;
-                } else {
-                    self.partitions[containing_index].kind = PartitionKind::Hidden;
-                    self.partitions.insert(containing_index, new);
-                }
-                containing_index
-            } else if self.partitions[containing_index].bounds().start() == new.bounds().start() {
-                let containing_end = *self.partitions[containing_index].bounds().end();
-                if undo {
-                    self.partitions[containing_index].bounds.1.pop();
-                } else {
-                    self.partitions[containing_index]
-                        .bounds
-                        .1
-                        .push(*new.bounds().end()..=containing_end);
-                }
-                self.partitions.insert(containing_index, new);
-                containing_index
-            } else if self.partitions[containing_index].bounds().end() == new.bounds().end() {
-                let containing_start = *self.partitions[containing_index].bounds().start();
-                if undo {
-                    self.partitions[containing_index].bounds.1.pop();
-                } else {
-                    self.partitions[containing_index]
-                        .bounds
-                        .1
-                        .push(containing_start..=*new.bounds().start());
-                }
-                self.partitions.insert(containing_index + 1, new);
-                containing_index
-            } else {
-                let containing_start = *self.partitions[containing_index].bounds().start();
-                let containing_end = *self.partitions[containing_index].bounds().end();
-                if undo {
-                    self.partitions[containing_index].bounds.1.pop();
-                } else {
-                    self.partitions[containing_index]
-                        .bounds
-                        .1
-                        .push(containing_start..=*new.bounds().start());
-                }
-                let new_end = *new.bounds().end();
-                self.partitions.insert(containing_index + 1, new);
-                self.partitions.insert(
-                    containing_index + 2,
-                    Partition::new(
-                        "".into(),
-                        new_end..=containing_end,
-                        None,
-                        self.raw.sector_size(),
-                    ),
-                );
-
-                containing_index + 1
-            },
-        )
-    }
-
-    pub fn remove_partition(&mut self, mut index: usize) {
-        let removed = self.remove_partition_inner(&mut index, false);
         self.changes
             .push(Change::RemovePartition { index, removed });
-    }
-
-    fn remove_partition_inner(&mut self, index: &mut usize, undo: bool) -> Option<Partition> {
-        let mut to_insert =
-            Some(|bounds| Partition::new("".into(), bounds, None, self.raw.sector_size()));
-        let this_partition_bounds = self.partitions[*index].bounds().clone();
-        if *index > 0
-            && let Some(prev) = self.partitions.get_mut(*index - 1)
-            && !prev.used()
-        {
-            if prev.kind == PartitionKind::Virtual {
-                self.partitions.remove(*index - 1);
-                *index -= 1;
-            } else if undo {
-                prev.bounds.1.pop();
-            } else {
-                prev.bounds
-                    .1
-                    .push(*prev.bounds.0.start()..=*this_partition_bounds.end());
-                to_insert = None;
-            }
-        }
-        if let Some(next) = self.partitions.get_mut(*index + 1)
-            && !next.used()
-        {
-            match next.kind {
-                PartitionKind::Virtual => {
-                    self.partitions.remove(*index + 1);
-                }
-                PartitionKind::Hidden => {
-                    next.kind = PartitionKind::Real;
-                    to_insert = None;
-                }
-                PartitionKind::Real => {
-                    if undo {
-                        next.bounds.1.pop();
-                    } else {
-                        next.bounds
-                            .1
-                            .push(*this_partition_bounds.start()..=*next.bounds.0.end());
-                        to_insert = None;
-                    }
-                }
-            }
-        }
-        if self.partitions[*index].kind == PartitionKind::Virtual {
-            if let Some(to_insert) = to_insert {
-                let out = std::mem::replace(
-                    &mut self.partitions[*index],
-                    Partition::new("".into(), 0..=0, None, 0),
-                );
-                self.partitions[*index] = to_insert(out.bounds().clone());
-                Some(out)
-            } else {
-                Some(self.partitions.remove(*index))
-            }
-        } else {
-            self.partitions[*index].kind = PartitionKind::Hidden;
-            if let Some(to_insert) = to_insert {
-                self.partitions.insert(
-                    *index + 1,
-                    to_insert(self.partitions[*index].bounds().clone()),
-                );
-            }
-            None
-        }
     }
 
     /// Undo the last change.
@@ -337,21 +225,23 @@ impl<'a> Device<'a> {
             Some(Change::Name { partition, .. }) => {
                 self.partitions[partition].name.1.pop();
             }
-            Some(Change::NewPartition { mut index, .. }) => {
+            Some(Change::NewPartition { index, .. }) => {
                 assert!(
                     self.partitions[index].kind == PartitionKind::Virtual,
                     "undo tried to remove a real partition"
                 );
-                self.remove_partition_inner(&mut index, true);
+                self.remove_partition(index);
             }
             #[allow(clippy::unwrap_used, reason = "a failure here would be a logic bug")]
             Some(Change::RemovePartition { index, removed }) => {
                 if let Some(removed) = removed {
-                    self.new_partition_inner(removed, true).unwrap();
+                    self.partitions.insert(index, removed);
                 } else {
-                    let mut hidden = self.partitions.remove(index);
-                    hidden.kind = PartitionKind::Real;
-                    self.new_partition_inner(hidden, true).unwrap();
+                    assert!(
+                        self.partitions[index].kind == PartitionKind::Hidden,
+                        "undo tried to set a virtual partition to real"
+                    );
+                    self.partitions[index].kind = PartitionKind::Real;
                 }
             }
             None => {}

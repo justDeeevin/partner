@@ -3,6 +3,7 @@ use proc_mounts::MountInfo;
 use std::{fmt::Debug, ops::RangeInclusive, path::Path, sync::Arc};
 use strum::{Display, EnumString};
 
+#[derive(Clone)]
 pub struct Partition {
     pub path: Option<Arc<Path>>,
     // TODO
@@ -28,7 +29,7 @@ impl Debug for Partition {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PartitionKind {
     /// A partition that concretely exists
     Real,

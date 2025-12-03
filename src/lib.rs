@@ -10,6 +10,7 @@ mod partition;
 pub use partition::*;
 
 use byte_unit::Byte;
+use libparted::Geometry;
 use proc_mounts::MountInfo;
 use std::{
     collections::HashMap,
@@ -28,7 +29,7 @@ pub struct Device<'a> {
     model: Arc<str>,
     path: Arc<Path>,
     partitions: Vec<Partition>,
-    changes: Vec<Change>,
+    changes: Vec<InnerChange>,
     raw: RawDevice<'a>,
 }
 
@@ -47,6 +48,8 @@ impl Debug for Device<'_> {
 pub enum Error {
     #[error("given bounds overlap with existing partition №{0}")]
     OverlapsExisting(usize),
+    #[error("given bounds are out of device bounds")]
+    OutOfBounds,
 }
 
 impl<'a> Device<'a> {
@@ -136,7 +139,7 @@ impl<'a> Device<'a> {
 
     pub fn change_partition_name(&mut self, partition: usize, new: Arc<str>) {
         self.partitions[partition].name.1.push(new.clone());
-        self.changes.push(Change::Name { partition, new });
+        self.changes.push(InnerChange::Name { partition, new });
     }
 
     /// Create a new partition with the given name, (optionally) filesystem, and bounds **in
@@ -187,7 +190,7 @@ impl<'a> Device<'a> {
             Partition::new(name.clone(), bounds.clone(), fs, self.raw.sector_size()),
         );
 
-        self.changes.push(Change::NewPartition {
+        self.changes.push(InnerChange::NewPartition {
             name,
             fs,
             bounds,
@@ -216,24 +219,73 @@ impl<'a> Device<'a> {
         };
 
         self.changes
-            .push(Change::RemovePartition { index, removed });
+            .push(InnerChange::RemovePartition { index, removed });
+    }
+
+    /// Change the bounds of the partition at the given index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the index is out of bounds.
+    pub fn resize_partition(
+        &mut self,
+        index: usize,
+        new_bounds: impl RangeBounds<i64>,
+    ) -> Result<(), Error> {
+        let bounds = match new_bounds.start_bound() {
+            Bound::Included(b) => *b,
+            Bound::Excluded(b) => b + 1,
+            Bound::Unbounded => 0,
+        }..=match new_bounds.end_bound() {
+            Bound::Included(b) => *b,
+            Bound::Excluded(b) => b - 1,
+            Bound::Unbounded => self.raw.length() as i64,
+        };
+
+        let index = self
+            .partitions_enum()
+            .nth(index)
+            .expect("partition index out of bounds")
+            .0;
+
+        if *bounds.start() < 0 || *bounds.end() > self.raw.length() as i64 {
+            Err(Error::OutOfBounds)
+        } else if index != 0 && self.partitions[index - 1].bounds().end() > bounds.start() {
+            Err(Error::OverlapsExisting(index - 1))
+        } else if self.partitions[index + 1].bounds().start() < bounds.end() {
+            Err(Error::OverlapsExisting(index + 1))
+        } else {
+            self.partitions[index].bounds.1.push(bounds.clone());
+            self.changes
+                .push(InnerChange::ResizePartition { index, bounds });
+            Ok(())
+        }
+    }
+
+    #[allow(clippy::unwrap_used, reason = "a failure here would be a logic bug")]
+    fn get_public_index(&self, index: usize) -> usize {
+        self.partitions_enum().position(|p| p.0 == index).unwrap()
     }
 
     /// Undo the last change.
-    pub fn undo_change(&mut self) {
+    pub fn undo_change(&mut self) -> Option<Change> {
         match self.changes.pop() {
-            Some(Change::Name { partition, .. }) => {
+            Some(InnerChange::Name { partition, new }) => {
                 self.partitions[partition].name.1.pop();
+                Some(Change::Name { partition, new })
             }
-            Some(Change::NewPartition { index, .. }) => {
+            Some(InnerChange::NewPartition { index, .. }) => {
                 assert!(
                     self.partitions[index].kind == PartitionKind::Virtual,
                     "undo tried to remove a real partition"
                 );
                 self.remove_partition(index);
+                Some(Change::RemovePartition {
+                    index: self.get_public_index(index),
+                })
             }
             #[allow(clippy::unwrap_used, reason = "a failure here would be a logic bug")]
-            Some(Change::RemovePartition { index, removed }) => {
+            Some(InnerChange::RemovePartition { index, removed }) => {
                 if let Some(removed) = removed {
                     self.partitions.insert(index, removed);
                 } else {
@@ -243,8 +295,18 @@ impl<'a> Device<'a> {
                     );
                     self.partitions[index].kind = PartitionKind::Real;
                 }
+                Some(Change::RemovePartition {
+                    index: self.get_public_index(index),
+                })
             }
-            None => {}
+            Some(InnerChange::ResizePartition { index, bounds }) => {
+                self.partitions[index].bounds.1.pop();
+                Some(Change::ResizePartition {
+                    index: self.get_public_index(index),
+                    bounds,
+                })
+            }
+            None => None,
         }
     }
 
@@ -276,7 +338,7 @@ impl<'a> Device<'a> {
     }
 }
 
-enum Change {
+enum InnerChange {
     Name {
         partition: usize,
         new: Arc<str>,
@@ -291,9 +353,33 @@ enum Change {
         index: usize,
         removed: Option<Partition>,
     },
+    ResizePartition {
+        index: usize,
+        bounds: RangeInclusive<i64>,
+    },
 }
 
-impl Change {
+/// A change to a device returned by [`Device::undo_change`].
+pub enum Change {
+    Name {
+        partition: usize,
+        new: Arc<str>,
+    },
+    NewPartition {
+        name: Arc<str>,
+        fs: Option<FileSystem>,
+        bounds: RangeInclusive<i64>,
+    },
+    RemovePartition {
+        index: usize,
+    },
+    ResizePartition {
+        index: usize,
+        bounds: RangeInclusive<i64>,
+    },
+}
+
+impl InnerChange {
     fn apply(self, disk: &mut libparted::Disk) -> std::io::Result<()> {
         match self {
             #[allow(
@@ -327,6 +413,24 @@ impl Change {
             Self::RemovePartition { index, .. } => {
                 disk.remove_partition_by_number(index as u32 + 1)
             }
+            #[allow(
+                clippy::unwrap_used,
+                reason = "a panic here would be an internal logic bug"
+            )]
+            Self::ResizePartition { index, bounds } => disk
+                .get_partition(index as u32)
+                .unwrap()
+                .get_geom()
+                .open_fs()
+                .unwrap()
+                .resize(
+                    &Geometry::new(
+                        &unsafe { disk.get_device() },
+                        *bounds.start(),
+                        bounds.end() - bounds.start(),
+                    )?,
+                    None,
+                ),
         }
     }
 }

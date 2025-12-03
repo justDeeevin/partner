@@ -23,6 +23,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 itertools = "0.14.0"
 tui-input = "0.14.0"
+either = "1.15.0"
 
 [[bin]]
 name = "partner"

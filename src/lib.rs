@@ -7,6 +7,7 @@
 
 mod partition;
 
+use either::Either;
 pub use partition::*;
 
 use byte_unit::Byte;
@@ -119,6 +120,51 @@ impl<'a> Device<'a> {
         self.partitions
             .iter()
             .filter(|p| p.kind != PartitionKind::Hidden)
+    }
+
+    /// Get partitions interspersed with ranges of unused sectors.
+    ///
+    /// [`partitions`](Device::partitions) produces only partitions, leaving the caller to infer
+    /// unused sectors based on gaps in partition bounds. This function does that work for you.
+    #[allow(clippy::unwrap_used, reason = "panic statically impossible")]
+    pub fn partitions_with_empty(&self) -> Vec<Either<&Partition, RangeInclusive<i64>>> {
+        fn as_left<T, U>(either: &Either<T, U>) -> Option<&T> {
+            match either {
+                Either::Left(l) => Some(l),
+                Either::Right(_) => None,
+            }
+        }
+
+        let mut partitions = self.partitions().map(Either::Left).collect::<Vec<_>>();
+        if !partitions.is_empty() {
+            let mut i = 0;
+            if *as_left(&partitions[0]).unwrap().bounds().start() > 1 {
+                partitions.insert(
+                    0,
+                    Either::Right(1..=as_left(&partitions[0]).unwrap().bounds().start() - 1),
+                );
+                i += 1;
+            }
+            while i < partitions.len() - 1 {
+                let left = *as_left(&partitions[i]).unwrap().bounds().end();
+                let right = *as_left(&partitions[i + 1]).unwrap().bounds().start();
+                assert!(right > left, "overlapping partitions");
+                if right - left > 1 {
+                    partitions.insert(i + 1, Either::Right(left + 1..=right - 1));
+                    i += 1;
+                }
+
+                i += 1;
+            }
+            let end = *partitions.last().and_then(as_left).unwrap().bounds().end();
+            if Byte::from_u64(end as u64 * self.sector_size()) < self.size() {
+                partitions.push(Either::Right(
+                    end..=(self.size().as_u64() / self.sector_size()) as i64,
+                ));
+            }
+        }
+
+        partitions
     }
 
     pub fn sector_size(&self) -> u64 {

@@ -1,5 +1,6 @@
-use super::{NewPartition, OneOf, State, get_preceding, partitions_with_empty};
+use super::{NewPartition, State, as_left, get_preceding};
 use byte_unit::Byte;
+use either::Either;
 use itertools::intersperse_with;
 use ratatui::{
     Frame,
@@ -84,13 +85,13 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
         block
     };
 
-    let partitions = partitions_with_empty(dev);
+    let partitions = dev.partitions_with_empty();
 
     let table = Table::new(
         partitions.iter().map(|p| {
             let p = match p {
-                OneOf::Left(p) => p,
-                OneOf::Right(p) => {
+                Either::Left(p) => p,
+                Either::Right(p) => {
                     return Row::new::<[String; COLUMNS]>([
                         "unused".into(),
                         "".into(),
@@ -146,7 +147,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     } else {
         Vec::new()
     };
-    if matches!(state.selected_partition, Some((OneOf::Right(_), _))) {
+    if matches!(state.selected_partition, Some((Either::Right(_), _))) {
         actions.push("Esc: Abort");
     } else {
         actions.push("Esc: Back");
@@ -158,11 +159,11 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
     if state.input.is_none() && dev.n_changes() > 0 {
         actions.push("Ctrl+z: Undo");
     }
-    if state.selected_partition.is_none() && matches!(partition, OneOf::Right(_)) {
+    if state.selected_partition.is_none() && matches!(partition, Either::Right(_)) {
         actions.push("Enter: Create");
     }
     if state.selected_partition.is_none()
-        && let OneOf::Left(partition) = partition
+        && let Either::Left(partition) = partition
         && !partition.mounted()
     {
         actions.push("Enter: Edit");
@@ -171,7 +172,7 @@ fn view_device(state: &mut State, frame: &mut Frame, device: usize) {
         actions.push("Enter: Select");
     }
     if state.selected_partition.is_none()
-        && let OneOf::Left(partition) = partition
+        && let Either::Left(partition) = partition
         && !partition.mounted()
     {
         actions.push("Delete: Remove");
@@ -205,15 +206,14 @@ fn view_partition(
     frame: &mut Frame,
     area: Rect,
     device: usize,
-    (partition, mut table_state): (OneOf<usize, NewPartition>, TableState),
+    (partition, mut table_state): (Either<usize, NewPartition>, TableState),
 ) {
     let dev = &state.devices[device];
-    let partitions = partitions_with_empty(dev);
-    let title = if let OneOf::Left(partition) = &partition {
+    let partitions = dev.partitions_with_empty();
+    let title = if let Either::Left(partition) = &partition {
         format!(
             "Partition {}",
-            partitions[*partition]
-                .left()
+            as_left(&partitions[*partition])
                 .unwrap()
                 .path
                 .as_ref()
@@ -230,8 +230,8 @@ fn view_partition(
     let selected_cell = table_state.selected_cell().unwrap();
 
     let name = match &partition {
-        OneOf::Left(partition) => partitions[*partition].left().unwrap().name(),
-        OneOf::Right(partition) => &partition.name,
+        Either::Left(partition) => as_left(&partitions[*partition]).unwrap().name(),
+        Either::Right(partition) => &partition.name,
     };
     let name = if selected_cell.0 == 0 {
         state.input.as_ref().map(|i| i.value()).unwrap_or(name)
@@ -239,12 +239,12 @@ fn view_partition(
         name
     };
     let bounds = match &partition {
-        OneOf::Left(partition) => partitions[*partition].left().unwrap().bounds(),
-        OneOf::Right(partition) => &partition.bounds,
+        Either::Left(partition) => as_left(&partitions[*partition]).unwrap().bounds(),
+        Either::Right(partition) => &partition.bounds,
     };
     let size = match &partition {
-        OneOf::Left(partition) => partitions[*partition].left().unwrap().size(),
-        OneOf::Right(partition) => Byte::from_u64(
+        Either::Left(partition) => as_left(&partitions[*partition]).unwrap().size(),
+        Either::Right(partition) => Byte::from_u64(
             (partition.bounds.end() - partition.bounds.start()) as u64 * dev.sector_size(),
         ),
     };
@@ -273,7 +273,7 @@ fn view_partition(
         Row::from_iter([format!("Preceding: {preceding}")]),
         Row::from_iter([format!("Size: {size}")]),
     ];
-    if matches!(partition, OneOf::Right(_)) {
+    if matches!(partition, Either::Right(_)) {
         rows.push(Row::from_iter(["Submit"]));
     }
     let mut table = Table::new(rows, [Constraint::Min(0)]).block(block);

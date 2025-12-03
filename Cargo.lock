@@ -950,6 +950,7 @@ dependencies = [
  "byte-unit",
  "clap",
  "color-eyre",
+ "either",
  "itertools 0.14.0",
  "libparted",
  "nix",

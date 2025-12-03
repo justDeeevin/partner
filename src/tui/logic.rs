@@ -1,7 +1,6 @@
-use crate::{OneOf, get_preceding, partitions_with_empty};
-
-use super::{NewPartition, State};
+use super::{NewPartition, State, as_left, get_preceding};
 use byte_unit::Byte;
+use either::Either;
 use partner::{Change, FileSystem};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
@@ -53,7 +52,7 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
                         .selected()
                         .map(|i| state.real_partition_index(device, i))
                         == Some(index + 1)
-                    && let Some((OneOf::Left(partition), _)) = &mut state.selected_partition
+                    && let Some((Either::Left(partition), _)) = &mut state.selected_partition
                 {
                     state.table.scroll_up_by(1);
                     *partition -= 1;
@@ -76,7 +75,7 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
 fn update_partition(
     state: &mut State,
     update: Update<Message>,
-    (mut partition, table): (OneOf<usize, NewPartition>, TableState),
+    (mut partition, table): (Either<usize, NewPartition>, TableState),
 ) -> (Task<Message>, bool) {
     let Update::Terminal(event) = update else {
         return (Task::None, false);
@@ -93,7 +92,7 @@ fn update_partition(
                 return (Task::None, true);
             }
 
-            if let OneOf::Left(partition) = partition {
+            if let Either::Left(partition) = partition {
                 state.table.select(Some(partition));
             }
 
@@ -104,13 +103,13 @@ fn update_partition(
             if let Some(input) = &state.input {
                 match table.selected_cell() {
                     Some((0, 0)) => match &mut partition {
-                        OneOf::Left(partition) => {
+                        Either::Left(partition) => {
                             let device = state.selected_device.unwrap();
                             let real_partition = state.real_partition_index(device, *partition);
                             state.devices[device]
                                 .change_partition_name(real_partition, input.value().into());
                         }
-                        OneOf::Right(partition) => {
+                        Either::Right(partition) => {
                             partition.name = input.value().into();
                         }
                     },
@@ -124,7 +123,7 @@ fn update_partition(
                             }
                         };
                         match &mut partition {
-                            OneOf::Left(partition) => {
+                            Either::Left(partition) => {
                                 let selected_device = state.selected_device.unwrap();
                                 let selected_partition_index =
                                     state.real_partition_index(selected_device, *partition);
@@ -147,7 +146,7 @@ fn update_partition(
                                     state.table.scroll_down_by(1);
                                 }
                             }
-                            OneOf::Right(partition) => {
+                            Either::Right(partition) => {
                                 let new_start = partition.bounds.start()
                                     + (new_preceding.as_u64()
                                         / state.devices[state.selected_device.unwrap()]
@@ -171,7 +170,7 @@ fn update_partition(
                             }
                         };
                         match &mut partition {
-                            OneOf::Left(partition) => {
+                            Either::Left(partition) => {
                                 let selected_device = state.selected_device.unwrap();
                                 let selected_partition =
                                     state.real_partition_index(selected_device, *partition);
@@ -186,7 +185,7 @@ fn update_partition(
                                     .resize_partition(selected_partition, start..=start + new_size)
                                     .unwrap();
                             }
-                            OneOf::Right(partition) => {
+                            Either::Right(partition) => {
                                 partition.bounds = new_size..=*partition.bounds.end();
                             }
                         }
@@ -198,7 +197,7 @@ fn update_partition(
                 match table.selected_cell() {
                     Some((0, 0)) => {
                         let starting_name = match &partition {
-                            OneOf::Left(partition) => {
+                            Either::Left(partition) => {
                                 let device = state.selected_device.unwrap();
                                 state.devices[device]
                                     .partitions()
@@ -207,7 +206,7 @@ fn update_partition(
                                     .name()
                                     .to_string()
                             }
-                            OneOf::Right(partition) => partition.name.clone(),
+                            Either::Right(partition) => partition.name.clone(),
                         };
                         state.input = Some(Input::new(starting_name));
                     }
@@ -215,14 +214,14 @@ fn update_partition(
                         let selected_device = state.selected_device.unwrap();
                         let dev = &state.devices[selected_device];
                         let starting_preceding = match &partition {
-                            OneOf::Left(partition) => get_preceding(
+                            Either::Left(partition) => get_preceding(
                                 dev,
                                 dev.partitions()
                                     .nth(state.real_partition_index(selected_device, *partition))
                                     .unwrap()
                                     .bounds(),
                             ),
-                            OneOf::Right(partition) => get_preceding(dev, &partition.bounds),
+                            Either::Right(partition) => get_preceding(dev, &partition.bounds),
                         };
                         state.input = Some(Input::new(format!("{starting_preceding:#.10}")));
                     }
@@ -230,12 +229,12 @@ fn update_partition(
                         let selected_device = state.selected_device.unwrap();
                         let dev = &state.devices[selected_device];
                         let starting_size = match &partition {
-                            OneOf::Left(partition) => dev
+                            Either::Left(partition) => dev
                                 .partitions()
                                 .nth(state.real_partition_index(selected_device, *partition))
                                 .unwrap()
                                 .size(),
-                            OneOf::Right(partition) => Byte::from_u64(
+                            Either::Right(partition) => Byte::from_u64(
                                 (partition.bounds.end() - partition.bounds.start()) as u64
                                     * dev.sector_size(),
                             ),
@@ -243,7 +242,7 @@ fn update_partition(
                         state.input = Some(Input::new(format!("{starting_size:#.10}")));
                     }
                     Some((3, 0)) => {
-                        if let OneOf::Right(partition) = partition {
+                        if let Either::Right(partition) = partition {
                             state.devices[state.selected_device.unwrap()]
                                 .new_partition(
                                     partition.name.into(),
@@ -281,7 +280,7 @@ fn update_device(
     };
 
     let selected_partition_index = state.table.selected().unwrap();
-    let partitions = partitions_with_empty(&state.devices[device]);
+    let partitions = state.devices[device].partitions_with_empty();
     let selected_partition = &partitions[selected_partition_index];
 
     match code {
@@ -291,21 +290,21 @@ fn update_device(
             state.selected_device = None;
             (Task::None, true)
         }
-        KeyCode::Enter if selected_partition.left().is_some_and(|p| !p.mounted()) => {
+        KeyCode::Enter if as_left(selected_partition).is_some_and(|p| !p.mounted()) => {
             state.selected_partition = state.table.selected().map(|s| {
                 (
-                    OneOf::Left(s),
+                    Either::Left(s),
                     TableState::new().with_selected_cell(Some((0, 0))),
                 )
             });
             (Task::None, true)
         }
         KeyCode::Enter => {
-            let OneOf::Right(bounds) = selected_partition else {
+            let Either::Right(bounds) = selected_partition else {
                 return (Task::None, false);
             };
             state.selected_partition = Some((
-                OneOf::Right(NewPartition {
+                Either::Right(NewPartition {
                     name: "".into(),
                     fs: FileSystem::Ext4,
                     bounds: bounds.clone(),
@@ -314,7 +313,7 @@ fn update_device(
             ));
             (Task::None, true)
         }
-        KeyCode::Delete if selected_partition.left().is_some_and(|p| !p.mounted()) => {
+        KeyCode::Delete if as_left(selected_partition).is_some_and(|p| !p.mounted()) => {
             let offset = partitions
                 .iter()
                 .take(selected_partition_index)

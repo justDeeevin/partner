@@ -226,14 +226,18 @@ fn view_partition(
     let block = Block::bordered()
         .title(title)
         .title_style(Style::new().bold());
-    let name = state
-        .input
-        .as_ref()
-        .map(|i| i.value())
-        .unwrap_or(match &partition {
-            OneOf::Left(partition) => partitions[*partition].left().unwrap().name(),
-            OneOf::Right(partition) => &partition.name,
-        });
+
+    let selected_cell = table_state.selected_cell().unwrap();
+
+    let name = match &partition {
+        OneOf::Left(partition) => partitions[*partition].left().unwrap().name(),
+        OneOf::Right(partition) => &partition.name,
+    };
+    let name = if selected_cell.0 == 0 {
+        state.input.as_ref().map(|i| i.value()).unwrap_or(name)
+    } else {
+        name
+    };
     let bounds = match &partition {
         OneOf::Left(partition) => partitions[*partition].left().unwrap().bounds(),
         OneOf::Right(partition) => &partition.bounds,
@@ -244,13 +248,30 @@ fn view_partition(
             (partition.bounds.end() - partition.bounds.start()) as u64 * dev.sector_size(),
         ),
     };
+    let size = if selected_cell.0 == 2 {
+        state
+            .input
+            .as_ref()
+            .map(|i| i.value().to_string())
+            .unwrap_or_else(|| format!("{:#.10}", size))
+    } else {
+        format!("{:#.10}", size)
+    };
 
-    let preceding = get_preceding(dev, bounds);
+    let preceding = if selected_cell.0 == 1 {
+        state
+            .input
+            .as_ref()
+            .map(|i| i.value().to_string())
+            .unwrap_or_else(|| format!("{:#.10}", get_preceding(dev, bounds)))
+    } else {
+        format!("{:#.10}", get_preceding(dev, bounds))
+    };
 
     let mut rows = vec![
         Row::from_iter([format!("Name: {name}")]),
-        Row::from_iter([format!("Preceding: {preceding:#.10}")]),
-        Row::from_iter([format!("Size: {size:#.10}")]),
+        Row::from_iter([format!("Preceding: {preceding}")]),
+        Row::from_iter([format!("Size: {size}")]),
     ];
     if matches!(partition, OneOf::Right(_)) {
         rows.push(Row::from_iter(["Submit"]));
@@ -263,15 +284,20 @@ fn view_partition(
     frame.render_stateful_widget(table, area, &mut table_state);
 
     if let Some(input) = &state.input {
-        let x_offset = match table_state.selected_cell().unwrap() {
+        let selected_cell = table_state.selected_cell().unwrap();
+        let x_offset = match selected_cell {
             (0, 0) => "Name: ".len(),
             (1, 0) => "Preceding: ".len(),
+            (2, 0) => "Size: ".len(),
             (3, 0) => 0,
             _ => unreachable!(),
         } as u16
             + 1;
         let x = input.visual_cursor();
-        frame.set_cursor_position((area.x + x as u16 + x_offset, area.y + 1));
+        frame.set_cursor_position((
+            area.x + x as u16 + x_offset,
+            area.y + 1 + selected_cell.0 as u16,
+        ));
     }
 
     state.selected_partition = Some((partition, table_state));

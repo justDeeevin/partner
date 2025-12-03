@@ -70,6 +70,17 @@ struct State<'a> {
     input: Option<Input>,
 }
 
+impl State<'_> {
+    pub fn real_partition_index(&self, device: usize, partition: usize) -> usize {
+        partition
+            - partitions_with_empty(&self.devices[device])
+                .iter()
+                .take(partition)
+                .filter(|p| p.is_right())
+                .count()
+    }
+}
+
 fn partitions_with_empty<'a>(dev: &'a Device) -> Vec<OneOf<&'a Partition, RangeInclusive<i64>>> {
     let mut partitions = dev.partitions().map(OneOf::Left).collect::<Vec<_>>();
     if !partitions.is_empty() {

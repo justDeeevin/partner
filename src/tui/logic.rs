@@ -2,12 +2,13 @@ use crate::{OneOf, get_preceding, partitions_with_empty};
 
 use super::{NewPartition, State};
 use byte_unit::Byte;
-use partner::FileSystem;
+use partner::{Change, FileSystem};
 use ratatui::{
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
     widgets::TableState,
 };
 use ratatui_elm::{Task, Update};
+use tracing::warn;
 use tui_input::{Input, backend::crossterm::EventHandler};
 
 type Message = ();
@@ -38,8 +39,24 @@ pub fn update(state: &mut State, update: Update<Message>) -> (Task<Message>, boo
             KeyCode::Char('z') if modifiers.contains(KeyModifiers::CONTROL) => {
                 if state.input.is_none()
                     && let Some(device) = state.selected_device
+                    && let Some(Change::ResizePartition { index, bounds }) =
+                        state.devices[device].undo_change()
+                    && bounds.start()
+                        > state.devices[device]
+                            .partitions()
+                            .nth(index)
+                            .unwrap()
+                            .bounds()
+                            .start()
+                    && state
+                        .table
+                        .selected()
+                        .map(|i| state.real_partition_index(device, i))
+                        == Some(index + 1)
+                    && let Some((OneOf::Left(partition), _)) = &mut state.selected_partition
                 {
-                    state.devices[device].undo_change();
+                    state.table.scroll_up_by(1);
+                    *partition -= 1;
                 }
                 return (Task::None, true);
             }
@@ -88,14 +105,92 @@ fn update_partition(
                 match table.selected_cell() {
                     Some((0, 0)) => match &mut partition {
                         OneOf::Left(partition) => {
-                            state.devices[state.selected_device.unwrap()]
-                                .change_partition_name(*partition, input.value().into());
+                            let device = state.selected_device.unwrap();
+                            let real_partition = state.real_partition_index(device, *partition);
+                            state.devices[device]
+                                .change_partition_name(real_partition, input.value().into());
                         }
                         OneOf::Right(partition) => {
                             partition.name = input.value().into();
                         }
                     },
-                    Some((1, 0)) => todo!(),
+                    Some((1, 0)) => {
+                        let new_preceding = match input.value().parse::<Byte>() {
+                            Ok(new_preceding) => new_preceding,
+                            Err(e) => {
+                                warn!(?e, "Invalid byte input");
+                                state.selected_partition = Some((partition, table));
+                                return (Task::None, false);
+                            }
+                        };
+                        match &mut partition {
+                            OneOf::Left(partition) => {
+                                let selected_device = state.selected_device.unwrap();
+                                let selected_partition_index =
+                                    state.real_partition_index(selected_device, *partition);
+                                let prev_bounds = state.devices[selected_device]
+                                    .partitions()
+                                    .nth(selected_partition_index)
+                                    .unwrap()
+                                    .bounds();
+                                let end = *prev_bounds.end();
+                                let new_start = prev_bounds.start()
+                                    + (new_preceding.as_u64()
+                                        / state.devices[selected_device].sector_size())
+                                        as i64;
+                                if new_start != *prev_bounds.start() {
+                                    // TODO: handle invalid resizes
+                                    state.devices[selected_device]
+                                        .resize_partition(selected_partition_index, new_start..=end)
+                                        .unwrap();
+                                    *partition += 1;
+                                    state.table.scroll_down_by(1);
+                                }
+                            }
+                            OneOf::Right(partition) => {
+                                let new_start = partition.bounds.start()
+                                    + (new_preceding.as_u64()
+                                        / state.devices[state.selected_device.unwrap()]
+                                            .sector_size())
+                                        as i64;
+                                partition.bounds = new_start..=*partition.bounds.end();
+                            }
+                        }
+                    }
+                    Some((2, 0)) => {
+                        let new_size = match input.value().parse::<Byte>() {
+                            Ok(new_preceding) => {
+                                (new_preceding.as_u64()
+                                    / state.devices[state.selected_device.unwrap()].sector_size())
+                                    as i64
+                            }
+                            Err(e) => {
+                                warn!(?e, "Invalid byte input");
+                                state.selected_partition = Some((partition, table));
+                                return (Task::None, false);
+                            }
+                        };
+                        match &mut partition {
+                            OneOf::Left(partition) => {
+                                let selected_device = state.selected_device.unwrap();
+                                let selected_partition =
+                                    state.real_partition_index(selected_device, *partition);
+                                let start = *state.devices[selected_device]
+                                    .partitions()
+                                    .nth(selected_partition)
+                                    .unwrap()
+                                    .bounds()
+                                    .start();
+                                // TODO: handle invalid resizes
+                                state.devices[selected_device]
+                                    .resize_partition(selected_partition, start..=start + new_size)
+                                    .unwrap();
+                            }
+                            OneOf::Right(partition) => {
+                                partition.bounds = new_size..=*partition.bounds.end();
+                            }
+                        }
+                    }
                     _ => {}
                 }
                 state.input = None;
@@ -103,33 +198,43 @@ fn update_partition(
                 match table.selected_cell() {
                     Some((0, 0)) => {
                         let starting_name = match &partition {
-                            OneOf::Left(partition) => state.devices[state.selected_device.unwrap()]
-                                .partitions()
-                                .nth(*partition)
-                                .unwrap()
-                                .name()
-                                .to_string(),
+                            OneOf::Left(partition) => {
+                                let device = state.selected_device.unwrap();
+                                state.devices[device]
+                                    .partitions()
+                                    .nth(state.real_partition_index(device, *partition))
+                                    .unwrap()
+                                    .name()
+                                    .to_string()
+                            }
                             OneOf::Right(partition) => partition.name.clone(),
                         };
                         state.input = Some(Input::new(starting_name));
                     }
                     Some((1, 0)) => {
-                        let dev = &state.devices[state.selected_device.unwrap()];
+                        let selected_device = state.selected_device.unwrap();
+                        let dev = &state.devices[selected_device];
                         let starting_preceding = match &partition {
                             OneOf::Left(partition) => get_preceding(
                                 dev,
-                                dev.partitions().nth(*partition).unwrap().bounds(),
+                                dev.partitions()
+                                    .nth(state.real_partition_index(selected_device, *partition))
+                                    .unwrap()
+                                    .bounds(),
                             ),
                             OneOf::Right(partition) => get_preceding(dev, &partition.bounds),
                         };
                         state.input = Some(Input::new(format!("{starting_preceding:#.10}")));
                     }
                     Some((2, 0)) => {
-                        let dev = &state.devices[state.selected_device.unwrap()];
+                        let selected_device = state.selected_device.unwrap();
+                        let dev = &state.devices[selected_device];
                         let starting_size = match &partition {
-                            OneOf::Left(partition) => {
-                                dev.partitions().nth(*partition).unwrap().size()
-                            }
+                            OneOf::Left(partition) => dev
+                                .partitions()
+                                .nth(state.real_partition_index(selected_device, *partition))
+                                .unwrap()
+                                .size(),
                             OneOf::Right(partition) => Byte::from_u64(
                                 (partition.bounds.end() - partition.bounds.start()) as u64
                                     * dev.sector_size(),

@@ -7,7 +7,7 @@ exclude = ["images", "README.md", "flake.*", ".envrc"]
 [dependencies]
 libparted = "0.1.5"
 ratatui = "0.29.0"
-ratatui-elm = "1.1.1"
+ratatui-elm = "1.2.1"
 color-eyre = "0.6.5"
 throbber-widgets-tui = "0.9.0"
 clap = { version = "4.5.52", features = ["derive"] }

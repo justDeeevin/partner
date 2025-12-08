@@ -12,7 +12,6 @@ color-eyre = "0.6.5"
 throbber-widgets-tui = "0.9.0"
 clap = { version = "4.5.52", features = ["derive"] }
 byte-unit = "5.1.6"
-ouroboros = "0.18.5"
 tokio = { version = "1.48.0", features = ["sync"] }
 tokio-stream = { version = "0.1.17", default-features = false }
 proc-mounts = "0.3.0"

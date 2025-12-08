@@ -1,4 +1,4 @@
-use super::{NewPartition, State, as_left, get_preceding};
+use super::{NewPartition, State, as_left, consts::*, get_preceding};
 use byte_unit::Byte;
 use either::Either;
 use partner::{Change, FileSystem};
@@ -102,7 +102,7 @@ fn update_partition(
         KeyCode::Enter => {
             if let Some(input) = &state.input {
                 match table.selected_cell() {
-                    Some((0, 0)) => match &mut partition {
+                    Some(NAME_CELL) => match &mut partition {
                         Either::Left(partition) => {
                             let device = state.selected_device.unwrap();
                             let real_partition = state.real_partition_index(device, *partition);
@@ -113,7 +113,7 @@ fn update_partition(
                             partition.name = input.value().into();
                         }
                     },
-                    Some((1, 0)) => {
+                    Some(PRECEDING_CELL) => {
                         let new_preceding = match input.value().parse::<Byte>() {
                             Ok(new_preceding) => new_preceding,
                             Err(e) => {
@@ -156,7 +156,7 @@ fn update_partition(
                             }
                         }
                     }
-                    Some((2, 0)) => {
+                    Some(SIZE_CELL) => {
                         let new_size = match input.value().parse::<Byte>() {
                             Ok(new_preceding) => {
                                 (new_preceding.as_u64()
@@ -195,7 +195,7 @@ fn update_partition(
                 state.input = None;
             } else {
                 match table.selected_cell() {
-                    Some((0, 0)) => {
+                    Some(NAME_CELL) => {
                         let starting_name = match &partition {
                             Either::Left(partition) => {
                                 let device = state.selected_device.unwrap();
@@ -210,7 +210,7 @@ fn update_partition(
                         };
                         state.input = Some(Input::new(starting_name));
                     }
-                    Some((1, 0)) => {
+                    Some(PRECEDING_CELL) => {
                         let selected_device = state.selected_device.unwrap();
                         let dev = &state.devices[selected_device];
                         let starting_preceding = match &partition {
@@ -225,7 +225,7 @@ fn update_partition(
                         };
                         state.input = Some(Input::new(format!("{starting_preceding:#.10}")));
                     }
-                    Some((2, 0)) => {
+                    Some(SIZE_CELL) => {
                         let selected_device = state.selected_device.unwrap();
                         let dev = &state.devices[selected_device];
                         let starting_size = match &partition {
@@ -241,7 +241,7 @@ fn update_partition(
                         };
                         state.input = Some(Input::new(format!("{starting_size:#.10}")));
                     }
-                    Some((3, 0)) => {
+                    Some(SUBMIT_CELL) => {
                         if let Either::Right(partition) = partition {
                             state.devices[state.selected_device.unwrap()]
                                 .new_partition(
@@ -253,7 +253,7 @@ fn update_partition(
                             return (Task::None, true);
                         }
                     }
-                    _ => {}
+                    _ => unreachable!(),
                 }
             }
             (Task::None, true)

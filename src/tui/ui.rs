@@ -1,4 +1,4 @@
-use super::{NewPartition, State, as_left, get_preceding};
+use super::{NewPartition, State, as_left, consts::*, get_preceding};
 use byte_unit::Byte;
 use either::Either;
 use itertools::intersperse_with;
@@ -286,10 +286,10 @@ fn view_partition(
     if let Some(input) = &state.input {
         let selected_cell = table_state.selected_cell().unwrap();
         let x_offset = match selected_cell {
-            (0, 0) => "Name: ".len(),
-            (1, 0) => "Preceding: ".len(),
-            (2, 0) => "Size: ".len(),
-            (3, 0) => 0,
+            NAME_CELL => "Name: ".len(),
+            PRECEDING_CELL => "Preceding: ".len(),
+            SIZE_CELL => "Size: ".len(),
+            SUBMIT_CELL => 0,
             _ => unreachable!(),
         } as u16
             + 1;

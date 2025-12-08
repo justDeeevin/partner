@@ -15,6 +15,13 @@ use std::ops::RangeInclusive;
 use tracing_subscriber::EnvFilter;
 use tui_input::Input;
 
+mod consts {
+    pub const NAME_CELL: (usize, usize) = (0, 0);
+    pub const PRECEDING_CELL: (usize, usize) = (1, 0);
+    pub const SIZE_CELL: (usize, usize) = (2, 0);
+    pub const SUBMIT_CELL: (usize, usize) = (3, 0);
+}
+
 fn main() -> Result<()> {
     color_eyre::install()?;
 
